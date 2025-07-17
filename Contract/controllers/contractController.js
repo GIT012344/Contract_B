@@ -119,14 +119,64 @@ exports.listFiles = async (req, res) => {
   }
 };
 
-exports.searchContracts = (req, res) => {
-  let result = contracts.filter(c => !c.deletedFlag);
-  const { contractNo, contractDate, contactName, department, startDate, endDate } = req.query;
-  if (contractNo) result = result.filter(c => c.contractNo && c.contractNo.includes(contractNo));
-  if (contractDate) result = result.filter(c => c.contractDate && c.contractDate.startsWith(contractDate));
-  if (contactName) result = result.filter(c => c.contactName && c.contactName.includes(contactName));
-  if (department) result = result.filter(c => c.department && c.department === department);
-  if (startDate) result = result.filter(c => c.startDate && c.startDate >= startDate);
-  if (endDate) result = result.filter(c => c.endDate && c.endDate <= endDate);
-  res.json(result);
+exports.searchContracts = async (req, res) => {
+  const {
+    contractNo, contractDate, contactName, department, startDate, endDate,
+    periodDueStart, periodDueEnd, periodCount
+  } = req.query;
+  let sql = `SELECT DISTINCT c.* FROM contracts c`;
+  const wheres = ['c.deleted_flag = FALSE'];
+  const params = [];
+  let joinPeriods = false;
+
+  if (periodDueStart || periodDueEnd) {
+    sql += ' JOIN contract_periods p ON c.id = p.contract_id';
+    joinPeriods = true;
+    if (periodDueStart) {
+      params.push(periodDueStart);
+      wheres.push(`p.due_date >= $${params.length}`);
+    }
+    if (periodDueEnd) {
+      params.push(periodDueEnd);
+      wheres.push(`p.due_date <= $${params.length}`);
+    }
+  }
+  if (contractNo) {
+    params.push(`%${contractNo}%`);
+    wheres.push(`c.contract_no ILIKE $${params.length}`);
+  }
+  if (contractDate) {
+    params.push(contractDate);
+    wheres.push(`c.contract_date = $${params.length}`);
+  }
+  if (contactName) {
+    params.push(`%${contactName}%`);
+    wheres.push(`c.contact_name ILIKE $${params.length}`);
+  }
+  if (department) {
+    params.push(department);
+    wheres.push(`c.department = $${params.length}`);
+  }
+  if (startDate) {
+    params.push(startDate);
+    wheres.push(`c.start_date >= $${params.length}`);
+  }
+  if (endDate) {
+    params.push(endDate);
+    wheres.push(`c.end_date <= $${params.length}`);
+  }
+  if (periodCount) {
+    params.push(periodCount);
+    wheres.push(`c.period_count = $${params.length}`);
+  }
+  if (wheres.length > 0) {
+    sql += ' WHERE ' + wheres.join(' AND ');
+  }
+  sql += ' ORDER BY c.id DESC';
+  try {
+    const result = await db.query(sql, params);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 }; 
