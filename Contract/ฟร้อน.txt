@@ -64,3 +64,44 @@
 - ทุก request (ยกเว้น login) ต้องแนบ JWT token
 - ถ้ามีข้อสงสัยหรือ API ตอบ error ให้แจ้ง backend ทันที
 - ถ้าต้องการตัวอย่าง payload/response เพิ่มเติม แจ้ง backend ได้
+
+# ฟีเจอร์/ข้อควรทำเพิ่มเติม (แนะนำให้ทีม Frontend)
+
+## 10. Download/Delete File
+- เพิ่มปุ่มดาวน์โหลดไฟล์แนบ (GET `/uploads/xxxx.pdf` หรือ endpoint ที่ backend เตรียมให้)
+- เพิ่มปุ่มลบไฟล์แนบ (ถ้า backend มี endpoint DELETE `/api/contracts/:id/files/:fileId`)
+
+## 11. Dropdown Dynamic
+- ถ้าหน่วยงาน (department) หรือ field อื่นๆ เป็น dynamic ให้ดึงจาก API (เช่น `/api/departments`)
+- ถ้าไม่มี API ให้ใช้ static list ชั่วคราว
+
+## 12. UX เพิ่มเติม
+- แสดง loading/progress ทุกครั้งที่รอ API
+- แสดงข้อความแจ้งเตือนเมื่อสำเร็จ/ล้มเหลว (toast/snackbar)
+- ยืนยันก่อนลบ (confirm dialog)
+- ตรวจสอบ/validate ข้อมูลทุก field ก่อน submit
+
+## 13. Error Handling
+- แสดง error message ที่เข้าใจง่าย (เช่น "กรุณากรอกข้อมูลให้ครบถ้วน", "ไม่มีสิทธิ์เข้าถึง", "เกิดข้อผิดพลาดจากระบบ" ฯลฯ)
+- ถ้า API ตอบ error 500, 404, 401, 403 ให้แสดงข้อความที่เหมาะสม
+
+## 14. Responsive & Accessibility
+- ออกแบบ UI ให้รองรับมือถือ/แท็บเล็ต (responsive)
+- ใช้ label, aria-label, tab index ให้เหมาะสมสำหรับ accessibility
+
+## 15. Session Timeout
+- ถ้า token หมดอายุ ให้ redirect ไปหน้า login อัตโนมัติ
+
+## 16. (ถ้ามี) Notification/Alert
+- ถ้า backend มีระบบแจ้งเตือน (เช่น contract ใกล้หมดอายุ) ให้แสดง notification ใน frontend ด้วย
+
+## 17. (ถ้ามี) Export/Import
+- ถ้าต้องการ export ข้อมูล (CSV, Excel) หรือ import ข้อมูล ให้แจ้ง backend เพื่อเตรียม endpoint
+
+## 18. (ถ้ามี) Multi-language
+- ถ้าต้องรองรับหลายภาษา ให้เตรียมโครงสร้าง i18n
+
+---
+**หมายเหตุ:**
+- ถ้ามีฟีเจอร์ใหม่/เปลี่ยนแปลง backend จะแจ้งให้ทีม frontend update เพิ่มเติม
+- ถ้าต้องการ API เพิ่มเติม/เปลี่ยนแปลง แจ้ง backend ได้ทันที
