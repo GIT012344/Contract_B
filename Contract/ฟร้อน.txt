@@ -1,107 +1,14 @@
-# สิ่งที่ทีม Frontend ต้องทำ (Contract Management System)
 
-## 1. ระบบ Login (Authentication)
-- สร้างหน้า Login รับ username, password, role (admin/user สำหรับทดสอบ)
-- ส่ง POST ไปที่ `/api/users/login` (body: { username, password, role })
-- ถ้า login สำเร็จ เก็บ JWT token (เช่น localStorage/sessionStorage)
-- ทุก request ต่อไปต้องแนบ header: `Authorization: Bearer <token>`
-- แสดง error ถ้า login ไม่ผ่าน
 
-## 2. ระบบสัญญา (Contract)
-### 2.1 List/Search
-- หน้าแสดงรายการสัญญา (table/grid)
-- ดึงข้อมูลจาก `/api/contracts` หรือ `/api/contracts/search` (รองรับ query string)
-- มีฟอร์มค้นหา (เลขที่สัญญา, วันที่, ชื่อ, หน่วยงาน, วันที่เริ่ม/สิ้นสุด, จำนวนงวด, วันที่งวดงาน ฯลฯ)
-- แสดงสถานะ, วันที่เหลือก่อนหมดอายุ (ถ้า status ไม่ใช่ EXPIRE, DELETED)
+# ข้อควรแจ้งทีม Frontend (alert_emails, email alert)
 
-### 2.2 ดูรายละเอียด
-- หน้าแสดงรายละเอียดสัญญา (GET `/api/contracts/:id`)
-- แสดงข้อมูลทุก field + ไฟล์แนบ + งวดงาน
+- เวลาสร้าง/แก้ไข contract ต้องใส่ field `alert_emails` เป็นอีเมลที่ใช้งานได้จริง และคั่นแต่ละอีเมลด้วย comma (,) เช่น
+  ```
+  a@git.or.th, b@git.or.th, c@git.or.th
+  ```
+- ระบบ backend จะส่งอีเมลแจ้งเตือนไปยังทุก address ที่ระบุใน `alert_emails` (ไม่ใช่แค่เมลแรก)
+- ฟอร์แมตอีเมลแจ้งเตือนจะมีข้อมูลครบ: เลขที่สัญญา, งวดที่, วันครบกำหนด (วันไทย), แจ้งล่วงหน้ากี่วัน (alert_days)
+- logic แจ้งเตือนล่วงหน้าจะอิงจาก alert_days ของแต่ละ period จริง (due_date - alert_days = วันที่แจ้งเตือน)
+- ถ้าไม่เห็นอีเมล ให้เช็ค spam/junk mail และแจ้ง backend พร้อม log
+- ถ้ามี error หรือข้อสงสัย ส่ง log หรือ network request/response มาให้ backend debug ได้ทันที
 
-### 2.3 สร้าง/แก้ไข/ลบสัญญา (admin เท่านั้น)
-- ฟอร์มเพิ่ม/แก้ไขสัญญา (POST/PUT `/api/contracts`)
-- ลบสัญญา (DELETE `/api/contracts/:id`)
-- ตรวจสอบสิทธิ์: ถ้าไม่ใช่ admin ซ่อน/disable ปุ่มเหล่านี้
-
-## 3. ระบบแนบไฟล์ (File Upload)
-- หน้าแนบไฟล์ (POST `/api/contracts/:id/upload`, ใช้ multipart/form-data, field: files)
-- จำกัดสูงสุด 5 ไฟล์/สัญญา
-- แสดงรายการไฟล์แนบ (GET `/api/contracts/:id/files`)
-- (ถ้าต้องการ) ปุ่มดาวน์โหลดไฟล์
-
-## 4. ระบบงวดงาน (Periods)
-- แสดงงวดงานทั้งหมดของสัญญา (GET `/api/contracts/:contractId/periods`)
-- เพิ่ม/แก้ไข/ลบงวดงาน (POST/PUT/DELETE, admin เท่านั้น)
-- ฟอร์มเพิ่ม/แก้ไข: เลือกเลขงวด, วันที่กำหนดส่ง
-
-## 5. การจัดการสิทธิ์ (Role)
-- ถ้า user role เป็น user: ซ่อน/disable ปุ่มสร้าง/แก้ไข/ลบ/แนบไฟล์/งวดงาน
-- ถ้า admin: เห็นทุกปุ่ม
-
-## 6. การจัดการ Error/Session
-- ถ้า API ตอบ 401 (token หมดอายุ/ไม่ถูกต้อง) ให้ redirect ไปหน้า login
-- ถ้า 403 (forbidden) ให้แจ้งเตือน "ไม่มีสิทธิ์"
-- แสดง error message ทุกกรณีที่ API ตอบ error
-- มีปุ่ม logout (ลบ token แล้วกลับไปหน้า login)
-
-## 7. UX/UI
-- ใช้ component ที่เหมาะสม (table, form, modal, datepicker, dropdown ฯลฯ)
-- Validate ข้อมูลก่อนส่ง (เช่น วันที่, จำนวนไฟล์, email ฯลฯ)
-- Loading/Progress ทุกครั้งที่รอ API
-- Responsive รองรับมือถือ/แท็บเล็ต
-
-## 8. Flow ตัวอย่าง
-1. Login → ได้ token → redirect ไปหน้า list สัญญา
-2. List สัญญา → ค้นหา/เลือกดูรายละเอียด
-3. (admin) เพิ่ม/แก้ไข/ลบสัญญา, แนบไฟล์, จัดการงวดงาน
-4. (user) ดูข้อมูล/ค้นหาได้อย่างเดียว
-5. ทุกหน้าเช็ค token/scope ตลอด
-
-## 9. ตัวอย่าง Request/Response ดูได้จาก backend หรือขอ Postman collection เพิ่มเติมได้
-
----
-**หมายเหตุ:**
-- ทุก request (ยกเว้น login) ต้องแนบ JWT token
-- ถ้ามีข้อสงสัยหรือ API ตอบ error ให้แจ้ง backend ทันที
-- ถ้าต้องการตัวอย่าง payload/response เพิ่มเติม แจ้ง backend ได้
-
-# ฟีเจอร์/ข้อควรทำเพิ่มเติม (แนะนำให้ทีม Frontend)
-
-## 10. Download/Delete File
-- เพิ่มปุ่มดาวน์โหลดไฟล์แนบ (GET `/uploads/xxxx.pdf` หรือ endpoint ที่ backend เตรียมให้)
-- เพิ่มปุ่มลบไฟล์แนบ (ถ้า backend มี endpoint DELETE `/api/contracts/:id/files/:fileId`)
-
-## 11. Dropdown Dynamic
-- ถ้าหน่วยงาน (department) หรือ field อื่นๆ เป็น dynamic ให้ดึงจาก API (เช่น `/api/departments`)
-- ถ้าไม่มี API ให้ใช้ static list ชั่วคราว
-
-## 12. UX เพิ่มเติม
-- แสดง loading/progress ทุกครั้งที่รอ API
-- แสดงข้อความแจ้งเตือนเมื่อสำเร็จ/ล้มเหลว (toast/snackbar)
-- ยืนยันก่อนลบ (confirm dialog)
-- ตรวจสอบ/validate ข้อมูลทุก field ก่อน submit
-
-## 13. Error Handling
-- แสดง error message ที่เข้าใจง่าย (เช่น "กรุณากรอกข้อมูลให้ครบถ้วน", "ไม่มีสิทธิ์เข้าถึง", "เกิดข้อผิดพลาดจากระบบ" ฯลฯ)
-- ถ้า API ตอบ error 500, 404, 401, 403 ให้แสดงข้อความที่เหมาะสม
-
-## 14. Responsive & Accessibility
-- ออกแบบ UI ให้รองรับมือถือ/แท็บเล็ต (responsive)
-- ใช้ label, aria-label, tab index ให้เหมาะสมสำหรับ accessibility
-
-## 15. Session Timeout
-- ถ้า token หมดอายุ ให้ redirect ไปหน้า login อัตโนมัติ
-
-## 16. (ถ้ามี) Notification/Alert
-- ถ้า backend มีระบบแจ้งเตือน (เช่น contract ใกล้หมดอายุ) ให้แสดง notification ใน frontend ด้วย
-
-## 17. (ถ้ามี) Export/Import
-- ถ้าต้องการ export ข้อมูล (CSV, Excel) หรือ import ข้อมูล ให้แจ้ง backend เพื่อเตรียม endpoint
-
-## 18. (ถ้ามี) Multi-language
-- ถ้าต้องรองรับหลายภาษา ให้เตรียมโครงสร้าง i18n
-
----
-**หมายเหตุ:**
-- ถ้ามีฟีเจอร์ใหม่/เปลี่ยนแปลง backend จะแจ้งให้ทีม frontend update เพิ่มเติม
-- ถ้าต้องการ API เพิ่มเติม/เปลี่ยนแปลง แจ้ง backend ได้ทันที

@@ -6,6 +6,7 @@ exports.listContracts = async (req, res) => {
     const result = await db.query('SELECT * FROM contracts WHERE deleted_flag = FALSE ORDER BY id DESC');
     res.json(result.rows);
   } catch (err) {
+    console.error('ERROR in listContracts:', err);
     res.status(500).json({ error: err.message });
   }
 };
@@ -16,6 +17,7 @@ exports.getContract = async (req, res) => {
     if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
     res.json(result.rows[0]);
   } catch (err) {
+    console.error('ERROR in getContract:', err);
     res.status(500).json({ error: err.message });
   }
 };
@@ -26,14 +28,20 @@ exports.createContract = async (req, res) => {
       contractNo, contractDate, contactName, department, startDate, endDate, periodCount,
       remark1, remark2, remark3, remark4, alertEmails, status
     } = req.body;
+    if (!contractNo) {
+      return res.status(400).json({ error: 'contractNo is required' });
+    }
+    const allowedStatus = ['CRTD', 'ACTIVE', 'EXPIRED', 'DELETED'];
+    const statusToSave = allowedStatus.includes(status) ? status : 'CRTD';
     const result = await db.query(
       `INSERT INTO contracts (contract_no, contract_date, contact_name, department, start_date, end_date, period_count, remark1, remark2, remark3, remark4, alert_emails, status, created_by, updated_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$14) RETURNING *`,
-      [contractNo, contractDate, contactName, department, startDate, endDate, periodCount, remark1, remark2, remark3, remark4, alertEmails, status || 'CRTD', req.user.username]
+      [contractNo, contractDate, contactName, department, startDate, endDate, periodCount, remark1, remark2, remark3, remark4, alertEmails, statusToSave, req.user.username]
     );
     logService.log('CREATE', result.rows[0].id, req.user.username, { contractNo });
     res.status(201).json(result.rows[0]);
   } catch (err) {
+    console.error('ERROR in createContract:', err);
     res.status(500).json({ error: err.message });
   }
 };
@@ -62,6 +70,7 @@ exports.updateContract = async (req, res) => {
     logService.log('UPDATE', id, req.user.username, { contractNo: result.rows[0].contract_no });
     res.json(result.rows[0]);
   } catch (err) {
+    console.error('ERROR in updateContract:', err);
     res.status(500).json({ error: err.message });
   }
 };
@@ -77,6 +86,7 @@ exports.deleteContract = async (req, res) => {
     logService.log('DELETE', id, req.user.username, { contractNo: result.rows[0].contract_no });
     res.json({ success: true });
   } catch (err) {
+    console.error('ERROR in deleteContract:', err);
     res.status(500).json({ error: err.message });
   }
 };
