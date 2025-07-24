@@ -1,12 +1,29 @@
 const db = require('../db');
 const logService = require('../services/logService');
+const ActivityLogger = require('../services/activityLogger');
 
 exports.listContracts = async (req, res) => {
   try {
     const result = await db.query('SELECT * FROM contracts WHERE deleted_flag = FALSE ORDER BY id DESC');
+    
+    // บันทึก Activity Log
+    await ActivityLogger.log({
+      userId: req.user.id,
+      username: req.user.username,
+      actionType: 'VIEW',
+      resourceType: 'CONTRACT',
+      description: 'ดูรายการสัญญาทั้งหมด',
+      ipAddress: ActivityLogger.getClientIP(req),
+      userAgent: req.get('User-Agent'),
+      requestMethod: req.method,
+      requestUrl: req.originalUrl,
+      statusCode: 200
+    });
+    
     res.json(result.rows);
   } catch (err) {
     console.error('ERROR in listContracts:', err);
+    await ActivityLogger.logError(req.user, err, req);
     res.status(500).json({ error: err.message });
   }
 };
@@ -14,10 +31,37 @@ exports.listContracts = async (req, res) => {
 exports.getContract = async (req, res) => {
   try {
     const result = await db.query('SELECT * FROM contracts WHERE id = $1 AND deleted_flag = FALSE', [req.params.id]);
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+    if (result.rows.length === 0) {
+      await ActivityLogger.log({
+        userId: req.user.id,
+        username: req.user.username,
+        actionType: 'VIEW',
+        resourceType: 'CONTRACT',
+        resourceId: req.params.id,
+        description: 'พยายามดูสัญญาที่ไม่พบ',
+        ipAddress: ActivityLogger.getClientIP(req),
+        userAgent: req.get('User-Agent'),
+        requestMethod: req.method,
+        requestUrl: req.originalUrl,
+        statusCode: 404
+      });
+      return res.status(404).json({ error: 'Not found' });
+    }
+    
+    // บันทึก Activity Log
+    await ActivityLogger.logContractActivity(
+      'VIEW',
+      req.user,
+      req.params.id,
+      `ดูรายละเอียดสัญญา: ${result.rows[0].contract_no}`,
+      req,
+      200
+    );
+    
     res.json(result.rows[0]);
   } catch (err) {
     console.error('ERROR in getContract:', err);
+    await ActivityLogger.logError(req.user, err, req);
     res.status(500).json({ error: err.message });
   }
 };
@@ -39,6 +83,17 @@ exports.createContract = async (req, res) => {
       [contractNo, contractDate, contactName, department, startDate, endDate, periodCount, remark1, remark2, remark3, remark4, alertEmails, statusToSave, req.user.username]
     );
     logService.log('CREATE', result.rows[0].id, req.user.username, { contractNo });
+    
+    // บันทึก Activity Log สำหรับการสร้างสัญญา
+    await ActivityLogger.logContractActivity(
+      'CREATE',
+      req.user,
+      result.rows[0].id,
+      `สร้างสัญญาใหม่: ${contractNo}`,
+      req,
+      201
+    );
+    
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('ERROR in createContract:', err);
@@ -68,6 +123,17 @@ exports.updateContract = async (req, res) => {
     const result = await db.query(sql, values);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
     logService.log('UPDATE', id, req.user.username, { contractNo: result.rows[0].contract_no });
+    
+    // บันทึก Activity Log สำหรับการแก้ไขสัญญา
+    await ActivityLogger.logContractActivity(
+      'UPDATE',
+      req.user,
+      id,
+      `แก้ไขสัญญา: ${result.rows[0].contract_no}`,
+      req,
+      200
+    );
+    
     res.json(result.rows[0]);
   } catch (err) {
     console.error('ERROR in updateContract:', err);
@@ -84,6 +150,17 @@ exports.deleteContract = async (req, res) => {
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
     logService.log('DELETE', id, req.user.username, { contractNo: result.rows[0].contract_no });
+    
+    // บันทึก Activity Log สำหรับการลบสัญญา
+    await ActivityLogger.logContractActivity(
+      'DELETE',
+      req.user,
+      id,
+      `ลบสัญญา: ${result.rows[0].contract_no}`,
+      req,
+      200
+    );
+    
     res.json({ success: true });
   } catch (err) {
     console.error('ERROR in deleteContract:', err);
@@ -111,6 +188,17 @@ exports.uploadFiles = async (req, res) => {
     }
     // log
     logService.log('UPLOAD', contractId, req.user.username, { files: req.files.map(f => f.originalname) });
+    
+    // บันทึก Activity Log สำหรับการอัพโหลดไฟล์
+    await ActivityLogger.logContractActivity(
+      'UPLOAD',
+      req.user,
+      contractId,
+      `อัพโหลดไฟล์: ${req.files.map(f => f.originalname).join(', ')}`,
+      req,
+      200
+    );
+    
     // คืนไฟล์แนบทั้งหมด
     const filesResult = await db.query('SELECT * FROM contract_files WHERE contract_id = $1 ORDER BY id', [contractId]);
     res.json({ success: true, files: filesResult.rows });

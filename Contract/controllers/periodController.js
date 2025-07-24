@@ -2,6 +2,80 @@ const db = require('../db');
 const logService = require('../services/logService');
 const emailService = require('../services/emailService');
 const { DateTime } = require('luxon');
+const ActivityLogger = require('../services/activityLogger');
+
+// ดึงข้อมูลงวดงานทั้งหมดสำหรับการแจ้งเตือน
+exports.getAllPeriods = async (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        cp.id,
+        cp.period_no,
+        cp.due_date,
+        cp.alert_days,
+        c.id as contract_id,
+        c.contract_no,
+        c.contact_name,
+        c.department
+      FROM contract_periods cp
+      JOIN contracts c ON cp.contract_id = c.id
+      WHERE c.deleted_flag = FALSE
+      ORDER BY cp.due_date ASC
+    `;
+    
+    const result = await db.query(query);
+    
+    // คำนวณ days left สำหรับแต่ละงวด
+    const today = DateTime.now().setZone('Asia/Bangkok').startOf('day');
+    const periodsWithDaysLeft = result.rows.map(period => {
+      let daysLeft = '-';
+      
+      if (period.due_date) {
+        let dt = null;
+        
+        if (typeof period.due_date === 'string') {
+          dt = DateTime.fromISO(period.due_date, { zone: 'Asia/Bangkok' });
+          if (!dt.isValid) {
+            dt = DateTime.fromFormat(period.due_date, 'yyyy-MM-dd', { zone: 'Asia/Bangkok' });
+          }
+        } else if (period.due_date instanceof Date) {
+          dt = DateTime.fromJSDate(period.due_date, { zone: 'Asia/Bangkok' });
+        }
+        
+        if (dt && dt.isValid) {
+          daysLeft = Math.round(dt.diff(today, 'days').days);
+        }
+      }
+      
+      return {
+        ...period,
+        daysLeft,
+        isOverdue: typeof daysLeft === 'number' && daysLeft < 0,
+        isUrgent: typeof daysLeft === 'number' && daysLeft >= 0 && daysLeft <= (period.alert_days || 7)
+      };
+    });
+    
+    // บันทึก Activity Log
+    await ActivityLogger.log({
+      userId: req.user.id,
+      username: req.user.username,
+      actionType: 'VIEW',
+      resourceType: 'PERIOD',
+      description: 'ดูรายการงวดงานทั้งหมด',
+      ipAddress: ActivityLogger.getClientIP(req),
+      userAgent: req.get('User-Agent'),
+      requestMethod: req.method,
+      requestUrl: req.originalUrl,
+      statusCode: 200
+    });
+    
+    res.json(periodsWithDaysLeft);
+  } catch (err) {
+    console.error('ERROR in getAllPeriods:', err);
+    await ActivityLogger.logError(req.user, err, req);
+    res.status(500).json({ error: err.message });
+  }
+};
 
 exports.listPeriods = async (req, res) => {
   const contractId = req.params.contractId;
@@ -25,6 +99,21 @@ exports.addPeriod = async (req, res) => {
       [contractId, periodNo, dueDate, alert_days || 0]
     );
     logService.log('PERIOD_ADD', contractId, req.user.username, { periodNo, dueDate, alert_days });
+    
+    // บันทึก Activity Log สำหรับการเพิ่มงวดงาน
+    await ActivityLogger.log({
+      userId: req.user.id,
+      username: req.user.username,
+      actionType: 'CREATE',
+      resourceType: 'PERIOD',
+      resourceId: result.rows[0].id,
+      description: `เพิ่มงวดงานที่ ${periodNo} สำหรับ Contract ID: ${contractId}`,
+      ipAddress: ActivityLogger.getClientIP(req),
+      userAgent: req.get('User-Agent'),
+      requestMethod: req.method,
+      requestUrl: req.originalUrl,
+      statusCode: 201
+    });
 
     // --- ส่งอีเมลแจ้งเตือนทันที ถ้า dueDate ใกล้กว่าหรือเท่ากับ alert_days ---
     const period = result.rows[0];
@@ -33,13 +122,25 @@ exports.addPeriod = async (req, res) => {
     if (contract && contract.alert_emails) {
       // คำนวณ daysLeft
       const today = DateTime.now().setZone('Asia/Bangkok').startOf('day');
-      let dt = DateTime.fromISO(period.due_date, { zone: 'Asia/Bangkok' });
-      if (!dt.isValid) {
-        dt = DateTime.fromFormat(period.due_date, 'yyyy-MM-dd', { zone: 'Asia/Bangkok' });
-      }
+      let dt = null;
       let daysLeft = '-';
-      if (dt.isValid) {
-        daysLeft = Math.max(0, Math.round(dt.diff(today, 'days').days));
+      
+      // ตรวจสอบว่า due_date มีค่าและเป็น string ก่อนใช้ Luxon
+      if (period.due_date && typeof period.due_date === 'string') {
+        dt = DateTime.fromISO(period.due_date, { zone: 'Asia/Bangkok' });
+        if (!dt.isValid) {
+          dt = DateTime.fromFormat(period.due_date, 'yyyy-MM-dd', { zone: 'Asia/Bangkok' });
+        }
+        
+        if (dt.isValid) {
+          daysLeft = Math.max(0, Math.round(dt.diff(today, 'days').days));
+        }
+      } else if (period.due_date && period.due_date instanceof Date) {
+        // กรณีที่ due_date เป็น Date object
+        dt = DateTime.fromJSDate(period.due_date, { zone: 'Asia/Bangkok' });
+        if (dt.isValid) {
+          daysLeft = Math.max(0, Math.round(dt.diff(today, 'days').days));
+        }
       }
       // เงื่อนไข: ถ้า daysLeft <= alert_days และ daysLeft >= 0 ให้ส่งอีเมลทันที
       if (typeof period.alert_days === 'number' ? (daysLeft <= period.alert_days && daysLeft >= 0) : true) {
@@ -101,6 +202,22 @@ exports.updatePeriod = async (req, res) => {
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
     logService.log('PERIOD_UPDATE', id, req.user.username, { periodNo, dueDate, alert_days });
+    
+    // บันทึก Activity Log สำหรับการแก้ไขงวดงาน
+    await ActivityLogger.log({
+      userId: req.user.id,
+      username: req.user.username,
+      actionType: 'UPDATE',
+      resourceType: 'PERIOD',
+      resourceId: id,
+      description: `แก้ไขงวดงานที่ ${periodNo}`,
+      ipAddress: ActivityLogger.getClientIP(req),
+      userAgent: req.get('User-Agent'),
+      requestMethod: req.method,
+      requestUrl: req.originalUrl,
+      statusCode: 200
+    });
+    
     res.json(result.rows[0]);
   } catch (err) {
     console.error('ERROR in updatePeriod:', err);
@@ -119,6 +236,22 @@ exports.deletePeriod = async (req, res) => {
     }
     const result = await db.query('DELETE FROM contract_periods WHERE id = $1 RETURNING *', [id]);
     logService.log('PERIOD_DELETE', id, req.user.username, {});
+    
+    // บันทึก Activity Log สำหรับการลบงวดงาน
+    await ActivityLogger.log({
+      userId: req.user.id,
+      username: req.user.username,
+      actionType: 'DELETE',
+      resourceType: 'PERIOD',
+      resourceId: id,
+      description: `ลบงวดงาน ID: ${id}`,
+      ipAddress: ActivityLogger.getClientIP(req),
+      userAgent: req.get('User-Agent'),
+      requestMethod: req.method,
+      requestUrl: req.originalUrl,
+      statusCode: 200
+    });
+    
     res.json({ success: true });
   } catch (err) {
     console.error('ERROR in deletePeriod:', err);

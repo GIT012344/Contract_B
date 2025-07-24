@@ -111,3 +111,12 @@
 {"timestamp":"2025-07-18T05:04:07.815Z","action":"ALERT_CONTRACT_EXPIRY","contractId":"555","user":"system","detail":{"daysLeft":1}}
 {"timestamp":"2025-07-18T05:05:02.810Z","action":"ALERT_PERIOD_DUE","contractId":"CS-26","user":"system","detail":{"count":1}}
 {"timestamp":"2025-07-18T05:05:04.868Z","action":"ALERT_PERIOD_DUE","contractId":"555","user":"system","detail":{"count":2}}
+{"timestamp":"2025-07-24T03:22:51.219Z","action":"PERIOD_ADD","contractId":"2","user":"copyyu","detail":{"periodNo":7,"dueDate":"2025-07-26","alert_days":3}}
+{"timestamp":"2025-07-24T03:22:53.698Z","action":"PERIOD_ADD","contractId":"2","user":"copyyu","detail":{"periodNo":7,"dueDate":"2025-07-26","alert_days":3}}
+{"timestamp":"2025-07-24T03:25:24.182Z","action":"PERIOD_ADD","contractId":"2","user":"copyyu","detail":{"periodNo":7,"dueDate":"2025-07-26","alert_days":3}}
+{"timestamp":"2025-07-24T03:26:18.703Z","action":"PERIOD_ADD","contractId":"15","user":"copyyu","detail":{"periodNo":4,"dueDate":"2025-07-26","alert_days":3}}
+{"timestamp":"2025-07-24T04:22:47.333Z","action":"CREATE","contractId":16,"user":"copyyu","detail":{"contractNo":"002"}}
+{"timestamp":"2025-07-24T04:23:04.372Z","action":"PERIOD_ADD","contractId":"16","user":"copyyu","detail":{"periodNo":1,"dueDate":"2025-07-25","alert_days":1}}
+{"timestamp":"2025-07-24T04:23:19.453Z","action":"PERIOD_ADD","contractId":"16","user":"copyyu","detail":{"periodNo":2,"dueDate":"2025-07-26","alert_days":1}}
+{"timestamp":"2025-07-24T04:35:51.246Z","action":"CREATE","contractId":17,"user":"copyyu","detail":{"contractNo":"003"}}
+{"timestamp":"2025-07-24T04:36:36.407Z","action":"PERIOD_ADD","contractId":"17","user":"copyyu","detail":{"periodNo":1,"dueDate":"2025-07-26","alert_days":1}}
