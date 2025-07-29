@@ -11,9 +11,9 @@ async function runAlertJob() {
     `UPDATE contracts SET status = 'ACTIVE', updated_at = CURRENT_TIMESTAMP
      WHERE status = 'CRTD' AND start_date IS NOT NULL AND start_date <= CURRENT_DATE AND deleted_flag = FALSE`
   );
-  // --- เปลี่ยนสถานะ ACTIVE -> EXPIRED ---
+  // --- เปลี่ยนสถานะ ACTIVE -> EXPIRE ---
   await db.query(
-    `UPDATE contracts SET status = 'EXPIRED', updated_at = CURRENT_TIMESTAMP
+    `UPDATE contracts SET status = 'EXPIRE', updated_at = CURRENT_TIMESTAMP
      WHERE status = 'ACTIVE' AND end_date IS NOT NULL AND end_date <= CURRENT_DATE AND deleted_flag = FALSE`
   );
 

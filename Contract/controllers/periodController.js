@@ -77,12 +77,46 @@ exports.getAllPeriods = async (req, res) => {
   }
 };
 
+// GET /api/contracts/:contractId/periods - ดึงงวดงานของสัญญาเฉพาะ
 exports.listPeriods = async (req, res) => {
   const contractId = req.params.contractId;
   try {
-    const result = await db.query('SELECT * FROM contract_periods WHERE contract_id = $1 ORDER BY period_no', [contractId]);
-    res.json(result.rows);
+    const query = `
+      SELECT 
+        cp.id,
+        cp.contract_id,
+        cp.period_no,
+        cp.due_date,
+        cp.alert_days,
+        cp.description,
+        cp.amount,
+        cp.status,
+        cp.created_at,
+        cp.updated_at
+      FROM contract_periods cp
+      WHERE cp.contract_id = $1 
+      ORDER BY cp.period_no ASC
+    `;
+    
+    const result = await db.query(query, [contractId]);
+    
+    // แปลงข้อมูลให้ตรงตาม Frontend format
+    const periods = result.rows.map(period => ({
+      id: period.id,
+      contract_id: period.contract_id,
+      period_no: period.period_no,
+      status: period.status || 'รอดำเนินการ', // default status
+      due_date: period.due_date,
+      description: period.description || `งวดที่ ${period.period_no}`,
+      amount: period.amount || 0,
+      alert_days: period.alert_days || 0,
+      created_at: period.created_at,
+      updated_at: period.updated_at
+    }));
+    
+    res.json(periods);
   } catch (err) {
+    console.error('Error fetching periods:', err);
     res.status(500).json({ error: err.message });
   }
 };
@@ -257,4 +291,55 @@ exports.deletePeriod = async (req, res) => {
     console.error('ERROR in deletePeriod:', err);
     res.status(500).json({ error: err.message });
   }
-}; 
+};
+
+// GET /api/periods - ดึงงวดงานทั้งหมด (fallback)
+exports.getAllPeriodsSimple = async (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        cp.id,
+        cp.contract_id,
+        cp.period_no,
+        cp.due_date,
+        cp.alert_days,
+        cp.description,
+        cp.amount,
+        cp.status,
+        cp.created_at,
+        cp.updated_at,
+        c.contract_no,
+        c.contact_name,
+        c.department
+      FROM contract_periods cp
+      JOIN contracts c ON cp.contract_id = c.id
+      WHERE c.deleted_flag = FALSE
+      ORDER BY cp.due_date ASC, cp.period_no ASC
+    `;
+    
+    const result = await db.query(query);
+    
+    // แปลงข้อมูลให้ตรงตาม Frontend format
+    const periods = result.rows.map(period => ({
+      id: period.id,
+      contract_id: period.contract_id,
+      period_no: period.period_no,
+      status: period.status || 'รอดำเนินการ',
+      due_date: period.due_date,
+      description: period.description || `งวดที่ ${period.period_no}`,
+      amount: period.amount || 0,
+      alert_days: period.alert_days || 0,
+      // ข้อมูลสัญญาเพิ่มเติม
+      contract_no: period.contract_no,
+      contact_name: period.contact_name,
+      department: period.department,
+      created_at: period.created_at,
+      updated_at: period.updated_at
+    }));
+    
+    res.json(periods);
+  } catch (err) {
+    console.error('Error fetching all periods:', err);
+    res.status(500).json({ error: err.message });
+  }
+};

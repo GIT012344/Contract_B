@@ -17,6 +17,7 @@
     "dotenv": "^17.2.0",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
+    "ldap-authentication": "^3.3.4",
     "ldapjs": "^3.0.7",
     "luxon": "^3.7.1",
     "multer": "^2.0.1",

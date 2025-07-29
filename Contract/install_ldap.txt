@@ -1,0 +1,6 @@
+# ติดตั้ง LDAP packages
+npm install ldapjs
+npm install ldap-authentication
+
+# หรือใช้ yarn
+yarn add ldapjs ldap-authentication
