@@ -98,4 +98,25 @@ router.post('/test-email', auth, async (req, res) => {
   }
 });
 
+// ทริกเกอร์ alert job แบบ manual (admin only)
+router.post('/trigger-alert-job', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    const alertJob = require('../services/alertJob');
+    console.log('Manually triggering alert job...');
+    await alertJob.runAlertJob();
+    
+    res.json({ 
+      success: true, 
+      message: 'Alert job triggered successfully. Check server logs for details.' 
+    });
+  } catch (error) {
+    console.error('Error triggering alert job:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;

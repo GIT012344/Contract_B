@@ -6,23 +6,33 @@ const ldapService = require('../services/ldapService');
 const SECRET = process.env.JWT_SECRET || 'contract_secret';
 const SALT_ROUNDS = 10;
 
+// Admin PIN - can be changed here
+const ADMIN_PIN = '123456'; // 6-digit PIN for admin registration
+
 // สมัครสมาชิก (Registration)
 exports.register = async (req, res) => {
   try {
-    const { username, password, role } = req.body;
+    const { username, password, email, full_name, phone, department_id, role, adminPin } = req.body;
     
     // ตรวจสอบข้อมูลที่จำเป็น
-    if (!username || !password) {
+    if (!username || !password || !department_id || !role) {
       return res.status(400).json({ 
-        error: 'กรุณากรอก username และ password' 
+        error: 'กรุณากรอก username, password, เลือกแผนก และเลือกสิทธิ์การใช้งาน' 
       });
     }
     
-    // ตรวจสอบความยาวของ password
-    if (password.length < 6) {
-      return res.status(400).json({ 
-        error: 'Password ต้องมีความยาวอย่างน้อย 6 ตัวอักษร' 
-      });
+    // ตรวจสอบ PIN สำหรับการสมัคร admin
+    if (role === 'admin') {
+      if (!adminPin) {
+        return res.status(400).json({ 
+          error: 'กรุณากรอก PIN สำหรับการสมัครเป็นผู้ดูแลระบบ' 
+        });
+      }
+      if (adminPin !== ADMIN_PIN) {
+        return res.status(400).json({ 
+          error: 'PIN ไม่ถูกต้อง' 
+        });
+      }
     }
     
     // ตรวจสอบว่า username ซ้ำหรือไม่
@@ -37,20 +47,47 @@ exports.register = async (req, res) => {
       });
     }
     
+    // ตรวจสอบความยาวของ password
+    if (password.length < 6) {
+      return res.status(400).json({ 
+        error: 'Password ต้องมีความยาวอย่างน้อย 6 ตัวอักษร' 
+      });
+    }
+    
     // เข้ารหัส password
     const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
     
-    // บันทึกผู้ใช้ใหม่ลงฐานข้อมูล
+    // ตรวจสอบว่าแผนกมีอยู่จริง
+    const deptCheck = await db.query(
+      'SELECT id, name FROM departments WHERE id = $1 AND is_active = true',
+      [department_id]
+    );
+    
+    if (deptCheck.rows.length === 0) {
+      return res.status(400).json({ 
+        error: 'กรุณาเลือกแผนกที่ถูกต้อง' 
+      });
+    }
+    
+    // บันทึกผู้ใช้ใหม่ลงฐานข้อมูล - role ถูกกำหนดจาก frontend
     const newUser = await db.query(
-      'INSERT INTO users (username, password, role) VALUES ($1, $2, $3) RETURNING id, username, role, created_at',
-      [username, hashedPassword, role || 'user']
+      `INSERT INTO users (username, password, email, full_name, phone, department_id, role) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7) 
+       RETURNING id, username, email, full_name, phone, department_id, role, created_at`,
+      [username, hashedPassword, email, full_name, phone, department_id, role]
     );
     
     const user = newUser.rows[0];
+    const departmentName = deptCheck.rows[0].name;
     
-    // สร้าง JWT token
+    // สร้าง JWT token พร้อมข้อมูลแผนก
     const token = jwt.sign(
-      { id: user.id, username: user.username, role: user.role }, 
+      { 
+        id: user.id, 
+        username: user.username, 
+        role: user.role,
+        department_id: user.department_id 
+      }, 
       SECRET, 
       { expiresIn: '8h' }
     );
@@ -58,13 +95,21 @@ exports.register = async (req, res) => {
     // บันทึก Activity Log สำหรับการสมัครสมาชิก
     await ActivityLogger.logRegister(user, req);
 
+    // ส่ง role เป็นชื่อแผนกสำหรับ user ทั่วไป
+    const displayRole = user.role === 'admin' ? 'admin' : (departmentName || user.role);
+    
     res.status(201).json({
       message: 'สมัครสมาชิกสำเร็จ',
       token,
       user: {
         id: user.id,
         username: user.username,
-        role: user.role,
+        email: user.email,
+        full_name: user.full_name,
+        phone: user.phone,
+        role: displayRole,
+        department_id: user.department_id,
+        department_name: departmentName,
         createdAt: user.created_at
       }
     });
@@ -110,7 +155,7 @@ exports.login = async (req, res) => {
           
           // ค้นหาหรือสร้างผู้ใช้ในฐานข้อมูล local
           const existingUser = await db.query(
-            'SELECT id, username, role, ldap_dn FROM users WHERE username = $1',
+            'SELECT id, username, role, department_id, ldap_dn FROM users WHERE username = $1',
             [username]
           );
           
@@ -151,7 +196,10 @@ exports.login = async (req, res) => {
       console.log(`Attempting local authentication for user: ${username}`);
       
       const userResult = await db.query(
-        'SELECT id, username, password, role FROM users WHERE username = $1',
+        `SELECT u.id, u.username, u.password, u.role, u.department_id, u.full_name, u.email, d.name as department_name 
+         FROM users u 
+         LEFT JOIN departments d ON u.department_id = d.id 
+         WHERE u.username = $1`,
         [username]
       );
       
@@ -184,12 +232,13 @@ exports.login = async (req, res) => {
       console.log('Local authentication successful');
     }
     
-    // สร้าง JWT token
+    // สร้าง JWT token พร้อมข้อมูลแผนก
     const token = jwt.sign(
       { 
         id: user.id, 
         username: user.username, 
         role: user.role,
+        department_id: user.department_id,
         authMethod: authMethod
       }, 
       SECRET, 
@@ -214,13 +263,20 @@ exports.login = async (req, res) => {
       }
     });
 
+    // ส่ง role เป็นชื่อแผนกสำหรับ user ทั่วไป
+    const displayRole = user.role === 'admin' ? 'admin' : (user.department_name || user.role);
+    
     res.json({
       message: `เข้าสู่ระบบสำเร็จผ่าน ${authMethod === 'ldap' ? 'LDAP' : 'Local Account'}`,
       token,
       user: {
         id: user.id,
         username: user.username,
-        role: user.role,
+        full_name: user.full_name,
+        email: user.email,
+        role: displayRole,
+        department_id: user.department_id,
+        department_name: user.department_name,
         authMethod: authMethod
       }
     });
@@ -239,7 +295,11 @@ exports.getProfile = async (req, res) => {
     const userId = req.user.id; // จาก JWT middleware
     
     const userResult = await db.query(
-      'SELECT id, username, role, created_at FROM users WHERE id = $1',
+      `SELECT u.id, u.username, u.email, u.full_name, u.phone, u.role, u.department_id, u.created_at,
+              d.name as department_name, d.code as department_code
+       FROM users u
+       LEFT JOIN departments d ON u.department_id = d.id
+       WHERE u.id = $1`,
       [userId]
     );
     
@@ -253,7 +313,13 @@ exports.getProfile = async (req, res) => {
     res.json({
       id: user.id,
       username: user.username,
+      email: user.email,
+      full_name: user.full_name,
+      phone: user.phone,
       role: user.role,
+      department_id: user.department_id,
+      department_name: user.department_name,
+      department_code: user.department_code,
       createdAt: user.created_at
     });
     
@@ -327,10 +393,16 @@ exports.updateProfile = async (req, res) => {
       paramCount++;
     }
     
-    // ถ้าไม่มีอะไรต้องอัปเดต
+    // ถ้าไม่มีอะไรต้องอัปเดต - ส่งข้อมูลเดิมกลับไป
     if (updates.length === 0) {
-      return res.status(400).json({ 
-        error: 'ไม่มีข้อมูลที่ต้องอัปเดต' 
+      return res.json({
+        message: 'ข้อมูลโปรไฟล์เป็นปัจจุบันแล้ว',
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          role: user.role
+        }
       });
     }
     

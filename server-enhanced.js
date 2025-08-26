@@ -112,13 +112,19 @@ app.use('/api/periods', periodsRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/activity-logs', activityLogRoutes);
 
-// Cron job for alerts (fixed syntax)
-cron.schedule('0 1 * * *', () => {
-  console.log('Running daily alert job...');
+// Cron job for alerts - รันทุก 8 โมงเช้า
+// สำหรับทดสอบ: เปลี่ยนเป็น '* * * * *' (ทุกนาที)
+// สำหรับ production: ใช้ '0 8 * * *' (8 โมงเช้าทุกวัน)
+const ALERT_SCHEDULE = process.env.ALERT_SCHEDULE || '* * * * *';
+
+cron.schedule(ALERT_SCHEDULE, () => {
+  console.log(`[${new Date().toISOString()}] Running alert job...`);
   alertJob.runAlertJob();
 }, {
   timezone: 'Asia/Bangkok'
 });
+
+console.log(`✅ Alert job scheduled: ${ALERT_SCHEDULE} (Asia/Bangkok timezone)`);
 
 // Test route
 app.get('/', (req, res) => {

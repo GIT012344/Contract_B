@@ -11,29 +11,25 @@ app.use(cors());
 // app.use(activityLoggerMiddleware); // ปิดชั่วคราว
 
 // Routes
-const contractRoutes = require('./routes/contractRoutes');
-app.use('/api/contracts', contractRoutes);
-
-const periodRoutes = require('./routes/periodRoutes');
-app.use('/api/contracts', periodRoutes);
-
-const userRoutes = require('./routes/userRoutes');
-app.use('/api/users', userRoutes);
-
-const periodsRoutes = require('./routes/periodsRoutes');
-app.use('/api/periods', periodsRoutes);
-
-const settingsRoutes = require('./routes/settingsRoutes');
-app.use('/api/settings', settingsRoutes);
-
-const activityLogRoutes = require('./routes/activityLogRoutes');
-app.use('/api/activity-logs', activityLogRoutes);
-
 const authRoutes = require('./routes/authRoutes');
-app.use('/api/auth', authRoutes);
-
+const contractRoutes = require('./routes/contractRoutes');
+const periodRoutes = require('./routes/periodRoutes');
+const activityLogRoutes = require('./routes/activityLogRoutes');
 const alertRoutes = require('./routes/alertRoutes');
+const departmentRoutes = require('./routes/departmentRoutes');
+const userRoutes = require('./routes/userRoutes');
+const periodsRoutes = require('./routes/periodsRoutes');
+const settingsRoutes = require('./routes/settingsRoutes');
+
+// Apply routes
+app.use('/api/auth', authRoutes);
+app.use('/api/contracts', contractRoutes);
+app.use('/api/activity-logs', activityLogRoutes);
 app.use('/api/alerts', alertRoutes);
+app.use('/api/departments', departmentRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/periods', periodsRoutes);
+app.use('/api/settings', settingsRoutes);
 
 // Fix database constraint endpoint (temporary)
 app.get('/api/fix-constraint', async (req, res) => {
