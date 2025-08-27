@@ -60,6 +60,89 @@ app.get('/', (req, res) => {
   res.send('Contract Management API is running');
 });
 
+if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_TEST_ENDPOINTS === 'true') {
+  // Test email sending
+  app.get('/api/test-email', authenticateToken, async (req, res) => {
+    try {
+      const { sendMail } = require('./services/emailService');
+      const testEmail = req.query.email || req.user.email;
+      
+      await sendMail({
+        to: testEmail,
+        subject: 'Test Email - Contract Management System',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #2563eb;">ทดสอบระบบส่งอีเมล</h2>
+            <p>นี่คืออีเมลทดสอบจากระบบจัดการสัญญา</p>
+            <p>ส่งเมื่อ: ${new Date().toLocaleString('th-TH')}</p>
+            <p>ส่งโดย: ${req.user.username}</p>
+            <hr />
+            <p style="color: #6b7280; font-size: 12px;">
+              หากได้รับอีเมลนี้ แสดงว่าระบบส่งอีเมลทำงานปกติ
+            </p>
+          </div>
+        `
+      });
+      
+      res.json({ 
+        success: true, 
+        message: `Test email sent to ${testEmail}` 
+      });
+    } catch (error) {
+      console.error('Test email error:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: error.message 
+      });
+    }
+  });
+
+  // Test alert service
+  app.get('/api/test-alerts', authenticateToken, async (req, res) => {
+    try {
+      const alertService = require('./services/alertService');
+      const result = await alertService.runDailyAlerts();
+      res.json({
+        success: true,
+        message: 'Alert check completed',
+        result
+      });
+    } catch (error) {
+      console.error('Test alerts error:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: error.message 
+      });
+    }
+  });
+
+  // Check email configuration
+  app.get('/api/check-email-config', authenticateToken, async (req, res) => {
+    try {
+      const config = {
+        EMAIL_HOST: process.env.EMAIL_HOST ? '✓ Configured' : '✗ Not set',
+        EMAIL_USER: process.env.EMAIL_USER ? '✓ Configured' : '✗ Not set',
+        EMAIL_PASSWORD: process.env.EMAIL_PASSWORD ? '✓ Configured' : '✗ Not set',
+        EMAIL_FROM: process.env.EMAIL_FROM ? '✓ Configured' : '✗ Not set',
+        ALERT_SCHEDULE: process.env.ALERT_SCHEDULE || '0 8 * * *',
+        ALERT_CONTRACT_EXPIRY_DAYS: process.env.ALERT_CONTRACT_EXPIRY_DAYS || '7',
+        ALERT_PERIOD_DUE_DAYS: process.env.ALERT_PERIOD_DUE_DAYS || '7'
+      };
+      
+      res.json({
+        success: true,
+        configuration: config,
+        emailReady: !!(process.env.EMAIL_USER && process.env.EMAIL_PASSWORD)
+      });
+    } catch (error) {
+      res.status(500).json({ 
+        success: false, 
+        error: error.message 
+      });
+    }
+  });
+}
+
 const server = app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
