@@ -3,6 +3,7 @@ const app = express();
 const PORT = process.env.PORT || 5005;
 const cors = require('cors');
 const activityLoggerMiddleware = require('./middlewares/activityLogger');
+const cronJobs = require('./services/cronJobs');
 
 app.use(express.json());
 app.use(cors());
@@ -145,6 +146,10 @@ if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_TEST_ENDPOINTS =
 
 const server = app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
+  
+  // Initialize cron jobs for email alerts
+  cronJobs.initializeCronJobs();
+  console.log('✅ Cron jobs for email alerts initialized');
 });
 
 // Graceful shutdown
