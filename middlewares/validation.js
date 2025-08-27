@@ -66,7 +66,7 @@ const contractValidations = {
       }),
     body('status')
       .optional()
-      .isIn(['CRTD', 'ACTIVE', 'EXPIRED', 'DELETED']).withMessage('Invalid status value'),
+      .isIn(['CRTD', 'PENDING', 'ACTIVE', 'EXPIRED', 'DELETED']).withMessage('Invalid status value'),
     handleValidationErrors
   ],
 
@@ -89,7 +89,7 @@ const contractValidations = {
       .escape(),
     query('status')
       .optional()
-      .isIn(['CRTD', 'ACTIVE', 'EXPIRED', 'DELETED']).withMessage('Invalid status filter'),
+      .isIn(['CRTD', 'PENDING', 'ACTIVE', 'EXPIRED', 'DELETED']).withMessage('Invalid status filter'),
     query('department')
       .optional()
       .isLength({ max: 100 }).withMessage('Department filter too long')
@@ -168,10 +168,11 @@ const periodValidations = {
   create: [
     body('contractId')
       .notEmpty().withMessage('Contract ID is required')
-      .isInt().withMessage('Contract ID must be a number'),
+      .isInt().withMessage('Contract ID must be an integer'),
     body('periodNo')
       .notEmpty().withMessage('Period number is required')
-      .isInt({ min: 1 }).withMessage('Period number must be positive'),
+      .isString().withMessage('Period number must be a string')
+      .isLength({ min: 1, max: 50 }).withMessage('Period number must be between 1-50 characters'),
     body('periodDate')
       .optional()
       .isISO8601().withMessage('Invalid period date format'),
