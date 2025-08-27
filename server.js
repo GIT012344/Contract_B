@@ -3,7 +3,7 @@ const app = express();
 const PORT = process.env.PORT || 5005;
 const cors = require('cors');
 const activityLoggerMiddleware = require('./middlewares/activityLogger');
-const cronJobs = require('./services/cronJobs');
+const { authenticateToken } = require('./middlewares/auth');
 
 app.use(express.json());
 app.use(cors());
@@ -53,8 +53,8 @@ app.get('/api/fix-constraint', async (req, res) => {
 });
 
 // Initialize cron jobs
-const cronJobs = require('./services/cronJobs');
-cronJobs.initializeCronJobs();
+const cronJobService = require('./services/cronJobs');
+cronJobService.initializeCronJobs();
 
 // Test route
 app.get('/', (req, res) => {
@@ -146,16 +146,12 @@ if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_TEST_ENDPOINTS =
 
 const server = app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
-  
-  // Initialize cron jobs for email alerts
-  cronJobs.initializeCronJobs();
-  console.log('✅ Cron jobs for email alerts initialized');
 });
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
   console.log('SIGTERM signal received: closing HTTP server');
-  cronJobs.stopAllCronJobs();
+  cronJobService.stopAllCronJobs();
   server.close(() => {
     console.log('HTTP server closed');
   });
