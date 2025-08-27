@@ -11,6 +11,7 @@ router.post('/register', userController.register);
 
 // ดูข้อมูลโปรไฟล์ผู้ใช้ (ต้อง login)
 router.get('/profile', authMiddleware, userController.getProfile);
+router.get('/me', authMiddleware, userController.getProfile); // Add /me endpoint for compatibility
 
 // อัปเดตข้อมูลโปรไฟล์ผู้ใช้ (ต้อง login)
 router.put('/profile', authMiddleware, userController.updateProfile);
