@@ -119,6 +119,14 @@ exports.getContract = async (req, res) => {
       return res.status(403).json({ error: 'คุณไม่มีสิทธิ์เข้าถึงสัญญานี้' });
     }
     
+    // ดึงข้อมูลงวดงานของสัญญานี้
+    const periodsResult = await db.query(
+      `SELECT * FROM contract_periods 
+       WHERE contract_id = $1 
+       ORDER BY period_no`,
+      [req.params.id]
+    );
+    
     // บันทึก Activity Log
     try {
       await ActivityLogger.logContractActivity(
@@ -133,7 +141,11 @@ exports.getContract = async (req, res) => {
       console.error('Error logging activity:', logError);
     }
     
-    res.json(result.rows[0]);
+    // ส่งข้อมูลสัญญาพร้อมงวดงาน
+    res.json({
+      ...result.rows[0],
+      periods: periodsResult.rows
+    });
   } catch (err) {
     console.error('ERROR in getContract:', err);
     await ActivityLogger.logError(req.user, err, req);

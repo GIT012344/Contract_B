@@ -9,9 +9,11 @@ router.post('/login', userController.login);
 // สมัครสมาชิก
 router.post('/register', userController.register);
 
+// ดูข้อมูลผู้ใช้ปัจจุบัน (ต้อง login)
+router.get('/me', authMiddleware, userController.getProfile);
+
 // ดูข้อมูลโปรไฟล์ผู้ใช้ (ต้อง login)
 router.get('/profile', authMiddleware, userController.getProfile);
-router.get('/me', authMiddleware, userController.getProfile); // Add /me endpoint for compatibility
 
 // อัปเดตข้อมูลโปรไฟล์ผู้ใช้ (ต้อง login)
 router.put('/profile', authMiddleware, userController.updateProfile);
