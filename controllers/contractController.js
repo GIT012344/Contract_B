@@ -486,27 +486,9 @@ exports.deleteContractPeriod = async (req, res) => {
       return res.status(404).json({ error: 'Period not found' });
     }
     
-    // บันทึก Activity Log
-    await ActivityLogger.log({
-      userId: req.user.id,
-      username: req.user.username,
-      actionType: 'DELETE',
-      resourceType: 'PERIOD',
-      resourceId: periodId,
-      description: `ลบงวดงาน ID: ${periodId} ของ Contract ID: ${contractId}`,
-      ipAddress: ActivityLogger.getClientIP(req),
-      userAgent: req.get('User-Agent'),
-      requestMethod: req.method,
-      requestUrl: req.originalUrl,
-      statusCode: 200
-    });
-    
-    logService.log('PERIOD_DELETE', periodId, req.user.username, { contractId });
-    
     res.json({ success: true, deleted: result.rows[0] });
   } catch (err) {
     console.error('Error deleting contract period:', err);
-    await ActivityLogger.logError(req.user, err, req);
     res.status(500).json({ error: err.message });
   }
 };
