@@ -5,8 +5,8 @@ const config = require('../config/config');
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
-    user: config.EMAIL_SENDER,
-    pass: 'lwnj edbh cnby uvuq', // App Password for moonlightvilip@gmail.com
+    user: process.env.EMAIL_SENDER || config.EMAIL_SENDER,
+    pass: process.env.EMAIL_PASSWORD || 'lwnj edbh cnby uvuq', // Use env var in production
   },
   tls: {
     rejectUnauthorized: false
@@ -30,7 +30,7 @@ async function sendMail({ to, subject, text, html }) {
     }
     
     const mailOptions = {
-      from: `Contract Alert System <${config.EMAIL_SENDER}>`,
+      from: `Contract Alert System <${process.env.EMAIL_SENDER || config.EMAIL_SENDER}>`,
       to,
       subject,
       text: text || 'This is an HTML email. Please view it in an HTML-capable email client.',
