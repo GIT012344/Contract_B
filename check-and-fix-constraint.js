@@ -43,7 +43,7 @@ async function checkAndFix() {
     await pool.query(`
       ALTER TABLE contracts 
       ADD CONSTRAINT status_check 
-      CHECK (status IN ('CRTD', 'ACTIVE', 'EXPIRED', 'EXPIRE', 'DELETED', 'COMPLETED', 'CANCELLED', 'PENDING'))
+      CHECK (status IN ('CRTD', 'ACTIVE', 'EXPIRED', 'DELETED'))
     `);
     console.log('- New constraint added');
     
@@ -66,7 +66,7 @@ async function checkAndFix() {
       const contracts = await pool.query(`
         SELECT id, contract_no, status 
         FROM contracts 
-        WHERE status NOT IN ('CRTD', 'ACTIVE', 'EXPIRED', 'EXPIRE', 'DELETED', 'COMPLETED', 'CANCELLED', 'PENDING')
+        WHERE status NOT IN ('CRTD', 'ACTIVE', 'EXPIRED', 'DELETED')
       `);
       if (contracts.rows.length > 0) {
         console.log('Found contracts with invalid statuses:', contracts.rows);

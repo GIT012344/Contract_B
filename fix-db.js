@@ -26,7 +26,7 @@ async function fixDatabase() {
     await client.query(`
       ALTER TABLE contracts 
       ADD CONSTRAINT status_check 
-      CHECK (status IN ('CRTD', 'ACTIVE', 'EXPIRED', 'DELETED', 'COMPLETED', 'CANCELLED', 'PENDING'))
+      CHECK (status IN ('CRTD', 'ACTIVE', 'EXPIRED', 'DELETED'))
     `);
     console.log('✅ Added new status_check constraint with COMPLETED and CANCELLED');
     

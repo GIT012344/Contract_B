@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS contracts (
     updated_by INTEGER REFERENCES users(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT status_check CHECK (status IN ('CRTD', 'ACTIVE', 'EXPIRED', 'EXPIRE', 'DELETED', 'COMPLETED', 'CANCELLED', 'PENDING'))
+    CONSTRAINT status_check CHECK (status IN ('CRTD', 'ACTIVE', 'EXPIRED', 'DELETED'))
 );
 
 -- 3. ตาราง contract_files

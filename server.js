@@ -68,7 +68,7 @@ app.get('/api/fix-constraint', async (req, res) => {
     await db.query(`
       ALTER TABLE contracts 
       ADD CONSTRAINT status_check 
-      CHECK (status IN ('CRTD', 'ACTIVE', 'EXPIRED', 'DELETED', 'COMPLETED', 'CANCELLED', 'PENDING'))
+      CHECK (status IN ('CRTD', 'ACTIVE', 'EXPIRED', 'DELETED'))
     `);
     
     res.json({ success: true, message: 'Constraint updated successfully' });

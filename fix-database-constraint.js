@@ -28,14 +28,14 @@ async function fixConstraint() {
     await client.query(`
       ALTER TABLE contracts 
       ADD CONSTRAINT status_check 
-      CHECK (status IN ('CRTD', 'ACTIVE', 'EXPIRED', 'DELETED', 'COMPLETED', 'CANCELLED', 'PENDING'))
+      CHECK (status IN ('CRTD', 'ACTIVE', 'EXPIRED', 'DELETED'))
     `);
     
     // Commit transaction
     await client.query('COMMIT');
     
     console.log('✅ Constraint updated successfully!');
-    console.log('New valid statuses: CRTD, ACTIVE, EXPIRED, DELETED, COMPLETED, CANCELLED, PENDING');
+    console.log('New valid statuses: CRTD, ACTIVE, EXPIRED, DELETED');
     
   } catch (error) {
     // Rollback on error

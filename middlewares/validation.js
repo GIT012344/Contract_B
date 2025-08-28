@@ -180,7 +180,7 @@ const periodValidations = {
       .isFloat({ min: 0 }).withMessage('Amount must be positive number'),
     body('status')
       .optional()
-      .isIn(['CRTD', 'ACTIVE', 'EXPIRED', 'DELETED', 'COMPLETED', 'CANCELLED']).withMessage('Invalid status'),
+      .isIn(['CRTD', 'ACTIVE', 'EXPIRED', 'DELETED']).withMessage('Invalid status value'),
     handleValidationErrors
   ],
 

@@ -11,7 +11,7 @@ async function updateStatusConstraint() {
     // Add new constraint with COMPLETED and CANCELLED
     await db.query(`
       ALTER TABLE contracts ADD CONSTRAINT status_check 
-      CHECK (status IN ('CRTD', 'ACTIVE', 'EXPIRED', 'DELETED', 'COMPLETED', 'CANCELLED', 'PENDING'))
+      CHECK (status IN ('CRTD', 'ACTIVE', 'EXPIRED', 'DELETED'))
     `);
     console.log('Added new constraint with COMPLETED and CANCELLED');
     
