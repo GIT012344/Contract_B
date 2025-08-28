@@ -27,11 +27,13 @@ exports.listContracts = async (req, res) => {
         ORDER BY c.id DESC
       `;
     } else {
-      // User ทั่วไปเห็นเฉพาะสัญญาในแผนกตัวเอง
+      // User ทั่วไปเห็นสัญญาในแผนกตัวเอง และสัญญาที่ถูกแชร์มา
       query = `
         SELECT c.*, 
                COALESCE(pc.period_count, 0) as actual_period_count,
-               d.name as department_name
+               d.name as department_name,
+               cs.can_edit as shared_can_edit,
+               cs.can_delete as shared_can_delete
         FROM contracts c
         LEFT JOIN (
           SELECT contract_id, COUNT(*) as period_count
@@ -39,8 +41,9 @@ exports.listContracts = async (req, res) => {
           GROUP BY contract_id
         ) pc ON c.id = pc.contract_id
         LEFT JOIN departments d ON c.department_id = d.id
+        LEFT JOIN contract_shares cs ON c.id = cs.contract_id AND cs.department_id = $1
         WHERE c.deleted_flag = FALSE
-          AND c.department_id = $1
+          AND (c.department_id = $1 OR cs.department_id = $1)
         ORDER BY c.id DESC
       `;
       params = [department_id];
@@ -249,11 +252,23 @@ exports.updateContract = async (req, res) => {
     const currentContract = checkResult.rows[0];
     const currentStatus = currentContract.status;
     
-    // ตรวจสอบสิทธิ์แก้ไข: Admin แก้ไขได้ทั้งหมด, User แก้ไขได้เฉพาะในแผนกตัวเอง
-    if (req.user.role !== 'admin' && currentContract.department_id !== req.user.department_id) {
-      return res.status(403).json({ 
-        error: 'คุณไม่มีสิทธิ์แก้ไขสัญญานี้'
-      });
+    // ตรวจสอบสิทธิ์แก้ไข: Admin แก้ไขได้ทั้งหมด, User แก้ไขได้เฉพาะในแผนกตัวเองหรือที่ถูกแชร์มาพร้อมสิทธิ์แก้ไข
+    if (req.user.role !== 'admin') {
+      // Check if user's department owns the contract
+      if (currentContract.department_id === req.user.department_id) {
+        // User can edit their own department's contracts
+      } else {
+        // Check if contract is shared with edit permission
+        const shareCheck = await db.query(
+          'SELECT can_edit FROM contract_shares WHERE contract_id = $1 AND department_id = $2',
+          [id, req.user.department_id]
+        );
+        if (shareCheck.rows.length === 0 || !shareCheck.rows[0].can_edit) {
+          return res.status(403).json({ 
+            error: 'คุณไม่มีสิทธิ์แก้ไขสัญญานี้'
+          });
+        }
+      }
     }
     
     // Prevent editing if status is EXPIRED or DELETED
@@ -345,11 +360,22 @@ exports.deleteContract = async (req, res) => {
       return res.status(404).json({ error: 'Contract not found' });
     }
     
-    // ตรวจสอบสิทธิ์ลบ: Admin ลบได้ทั้งหมด, User ลบได้เฉพาะในแผนกตัวเอง
-    if (req.user.role !== 'admin' && checkResult.rows[0].department_id !== req.user.department_id) {
-      return res.status(403).json({ 
-        error: 'คุณไม่มีสิทธิ์ลบสัญญานี้'
-      });
+    // ตรวจสอบสิทธิ์ลบ: Admin ลบได้ทั้งหมด, User ลบได้เฉพาะในแผนกตัวเองหรือที่ถูกแชร์มาพร้อมสิทธิ์ลบ
+    if (req.user.role !== 'admin') {
+      if (checkResult.rows[0].department_id === req.user.department_id) {
+        // User can delete their own department's contracts
+      } else {
+        // Check if contract is shared with delete permission
+        const shareCheck = await db.query(
+          'SELECT can_delete FROM contract_shares WHERE contract_id = $1 AND department_id = $2',
+          [id, req.user.department_id]
+        );
+        if (shareCheck.rows.length === 0 || !shareCheck.rows[0].can_delete) {
+          return res.status(403).json({ 
+            error: 'คุณไม่มีสิทธิ์ลบสัญญานี้'
+          });
+        }
+      }
     }
     
     const result = await db.query(

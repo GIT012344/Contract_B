@@ -16,8 +16,8 @@ const pool = new Pool({
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
-    user: process.env.EMAIL_SENDER || 'moonlightvilip@gmail.com',
-    pass: 'lwnj edbh cnby uvuq'
+    user: process.env.EMAIL_USER || 'moonlightvilip@gmail.com',
+    pass: process.env.EMAIL_PASSWORD || 'lwnj edbh cnby uvuq'
   },
   tls: {
     rejectUnauthorized: false
