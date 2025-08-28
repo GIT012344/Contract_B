@@ -57,13 +57,16 @@ exports.register = async (req, res) => {
     // เข้ารหัส password
     const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
     
-    // ตรวจสอบว่าแผนกมีอยู่จริง
-    const deptCheck = await db.query(
-      'SELECT id, name FROM departments WHERE id = $1 AND is_active = true',
+    // ดึงชื่อและรหัสแผนก
+    const deptResult = await db.query(
+      'SELECT name, code FROM departments WHERE id = $1',
       [department_id]
     );
-    
-    if (deptCheck.rows.length === 0) {
+    const departmentName = deptResult.rows[0]?.name || '';
+    const departmentCode = deptResult.rows[0]?.code || '';
+
+    // ตรวจสอบว่าแผนกมีอยู่จริง
+    if (!departmentName || !departmentCode) {
       return res.status(400).json({ 
         error: 'กรุณาเลือกแผนกที่ถูกต้อง' 
       });
@@ -78,7 +81,6 @@ exports.register = async (req, res) => {
     );
     
     const user = newUser.rows[0];
-    const departmentName = deptCheck.rows[0].name;
     
     // สร้าง JWT token พร้อมข้อมูลแผนก
     const token = jwt.sign(
@@ -110,6 +112,7 @@ exports.register = async (req, res) => {
         role: displayRole,
         department_id: user.department_id,
         department_name: departmentName,
+        department_code: departmentCode,
         createdAt: user.created_at
       }
     });
@@ -196,7 +199,8 @@ exports.login = async (req, res) => {
       console.log(`Attempting local authentication for user: ${username}`);
       
       const userResult = await db.query(
-        `SELECT u.id, u.username, u.password, u.role, u.department_id, u.full_name, u.email, d.name as department_name 
+        `SELECT u.id, u.username, u.password, u.role, u.department_id, u.full_name, u.email, 
+                d.name as department_name, d.code as department_code
          FROM users u 
          LEFT JOIN departments d ON u.department_id = d.id 
          WHERE u.username = $1`,
@@ -277,6 +281,7 @@ exports.login = async (req, res) => {
         role: displayRole,
         department_id: user.department_id,
         department_name: user.department_name,
+        department_code: user.department_code,
         authMethod: authMethod
       }
     });
