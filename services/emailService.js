@@ -5,8 +5,14 @@ const config = require('../config/config');
 let transporter;
 
 // Check if email credentials are available
-const emailUser = process.env.EMAIL_USER || config.EMAIL_USER;
-const emailPass = process.env.EMAIL_PASSWORD || config.EMAIL_PASSWORD;
+const emailUser = process.env.EMAIL_USER || config.EMAIL_USER || '';
+const emailPass = process.env.EMAIL_PASSWORD || config.EMAIL_PASSWORD || '';
+
+console.log('Email Configuration:', {
+  hasUser: !!emailUser,
+  hasPassword: !!emailPass,
+  userEmail: emailUser ? emailUser.substring(0, 3) + '***' : 'not configured'
+});
 
 if (emailUser && emailPass) {
   transporter = nodemailer.createTransport({
@@ -30,11 +36,17 @@ if (emailUser && emailPass) {
   });
 } else {
   console.warn('⚠️ Email service not configured: Missing EMAIL_USER or EMAIL_PASSWORD');
+  console.log('Please set EMAIL_USER and EMAIL_PASSWORD environment variables in Render dashboard');
   // Create a dummy transporter that won't send emails
   transporter = {
     sendMail: async (mailOptions) => {
-      console.log('📧 Email service not configured. Would have sent:', mailOptions);
+      console.log('📧 Email service not configured. Would have sent to:', mailOptions.to);
+      console.log('   Subject:', mailOptions.subject);
       return { messageId: 'dummy-message-id' };
+    },
+    verify: (callback) => {
+      console.log('Email transporter verify called (dummy mode)');
+      if (callback) callback(null, true);
     }
   };
 }

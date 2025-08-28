@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS contract_files (
 CREATE TABLE IF NOT EXISTS contract_periods (
     id SERIAL PRIMARY KEY,
     contract_id INTEGER REFERENCES contracts(id) ON DELETE CASCADE,
-    period_no VARCHAR(50) NOT NULL,
+    period_no INTEGER NOT NULL,
     description TEXT,
     amount DECIMAL(15,2),
     due_date DATE,
