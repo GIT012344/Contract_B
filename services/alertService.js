@@ -30,12 +30,12 @@ exports.checkExpiringContracts = async (daysBeforeExpiry = 7) => {
     const query = `
       SELECT 
         c.*,
-        DATE_PART('day', c.end_date - CURRENT_DATE) as days_remaining
+        (c.end_date - CURRENT_DATE) as days_remaining
       FROM contracts c
       WHERE c.deleted_flag = FALSE 
         AND c.status IN ('ACTIVE', 'CRTD')
         AND c.end_date IS NOT NULL
-        AND DATE_PART('day', c.end_date - CURRENT_DATE) BETWEEN 0 AND $1
+        AND (c.end_date - CURRENT_DATE) BETWEEN 0 AND $1
       ORDER BY c.end_date ASC
     `;
     
@@ -56,14 +56,14 @@ exports.checkUpcomingPeriods = async () => {
         c.contract_no,
         c.contact_name,
         c.alert_emails,
-        DATE_PART('day', p.due_date - CURRENT_DATE) as days_remaining
+        (p.due_date - CURRENT_DATE) as days_remaining
       FROM contract_periods p
       JOIN contracts c ON p.contract_id = c.id
       WHERE c.deleted_flag = FALSE 
         AND p.status != 'เสร็จสิ้น'
         AND p.due_date IS NOT NULL
-        AND DATE_PART('day', p.due_date - CURRENT_DATE) <= p.alert_days
-        AND DATE_PART('day', p.due_date - CURRENT_DATE) >= 0
+        AND (p.due_date - CURRENT_DATE) <= p.alert_days
+        AND (p.due_date - CURRENT_DATE) >= 0
       ORDER BY p.due_date ASC
     `;
     
@@ -275,3 +275,6 @@ exports.runDailyAlerts = async () => {
     };
   }
 };
+
+// Alias function for compatibility with test script
+exports.checkAndSendAlerts = exports.runDailyAlerts;
