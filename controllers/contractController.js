@@ -303,21 +303,24 @@ exports.updateContract = async (req, res) => {
       }
     }
 
+    // Extract periods from body if present
+    const { periods, ...contractData } = body;
+    
     const fields = [
       'contract_no', 'contract_date', 'contact_name', 'department', 'start_date', 'end_date', 'period_count',
       'remark1', 'remark2', 'remark3', 'remark4', 'alert_emails', 'status'
     ];
     
     // Admin สามารถเปลี่ยนแผนกได้
-    if (req.user.role === 'admin' && body.department_id !== undefined) {
+    if (req.user.role === 'admin' && contractData.department_id !== undefined) {
       fields.push('department_id');
     }
     const updates = [];
     const values = [];
     fields.forEach((f, i) => {
-      if (body[f] !== undefined) {
+      if (contractData[f] !== undefined) {
         updates.push(`${f} = $${updates.length + 1}`);
-        values.push(body[f]);
+        values.push(contractData[f]);
       }
     });
     if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
@@ -326,6 +329,21 @@ exports.updateContract = async (req, res) => {
     const sql = `UPDATE contracts SET ${updates.join(', ')}, updated_by = $${updates.length + 1}, updated_at = CURRENT_TIMESTAMP WHERE id = $${updates.length + 2} AND deleted_flag = FALSE RETURNING *`;
     const result = await db.query(sql, values);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+    
+    // Handle periods update if provided
+    if (periods && Array.isArray(periods)) {
+      for (const period of periods) {
+        if (period.id && period.id.toString().startsWith('new-')) {
+          // Create new period
+          await db.query(
+            `INSERT INTO contract_periods (contract_id, period_no, due_date, alert_days, status, created_by) 
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [id, period.period_no, period.due_date, period.alert_days || 0, period.status || 'รอดำเนินการ', req.user.username]
+          );
+        }
+      }
+    }
+    
     logService.log('UPDATE', id, req.user.username, { contractNo: result.rows[0].contract_no });
     
     // บันทึก Activity Log สำหรับการแก้ไขสัญญา
@@ -462,10 +480,30 @@ exports.addContractPeriod = async (req, res) => {
   const { period_no, due_date, alert_days, description, amount, status } = req.body;
   
   try {
+    // Check contract exists and user has permission
+    const checkResult = await db.query('SELECT department_id FROM contracts WHERE id = $1 AND deleted_flag = FALSE', [contractId]);
+    if (checkResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Contract not found' });
+    }
+    
+    // Check permission: Admin can add to any contract, regular users only to their department's contracts
+    if (req.user.role !== 'admin') {
+      if (checkResult.rows[0].department_id !== req.user.department_id) {
+        // Check if contract is shared with edit permission
+        const shareCheck = await db.query(
+          'SELECT can_edit FROM contract_shares WHERE contract_id = $1 AND department_id = $2',
+          [contractId, req.user.department_id]
+        );
+        if (shareCheck.rows.length === 0 || !shareCheck.rows[0].can_edit) {
+          return res.status(403).json({ error: 'คุณไม่มีสิทธิ์เพิ่มงวดงานในสัญญานี้' });
+        }
+      }
+    }
+    
     const result = await db.query(
-      `INSERT INTO contract_periods (contract_id, period_no, due_date, alert_days, description, amount, status) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [contractId, period_no, due_date, alert_days || 7, description || '', amount || 0, status || 'รอดำเนินการ']
+      `INSERT INTO contract_periods (contract_id, period_no, due_date, alert_days, description, amount, status, created_by) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      [contractId, period_no, due_date, alert_days || 7, description || '', amount || 0, status || 'รอดำเนินการ', req.user.username]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -480,11 +518,31 @@ exports.updateContractPeriod = async (req, res) => {
   const { period_no, due_date, alert_days, description, amount, status } = req.body;
   
   try {
+    // Check contract exists and user has permission
+    const checkResult = await db.query('SELECT department_id FROM contracts WHERE id = $1 AND deleted_flag = FALSE', [contractId]);
+    if (checkResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Contract not found' });
+    }
+    
+    // Check permission: Admin can update any period, regular users only their department's contracts
+    if (req.user.role !== 'admin') {
+      if (checkResult.rows[0].department_id !== req.user.department_id) {
+        // Check if contract is shared with edit permission
+        const shareCheck = await db.query(
+          'SELECT can_edit FROM contract_shares WHERE contract_id = $1 AND department_id = $2',
+          [contractId, req.user.department_id]
+        );
+        if (shareCheck.rows.length === 0 || !shareCheck.rows[0].can_edit) {
+          return res.status(403).json({ error: 'คุณไม่มีสิทธิ์แก้ไขงวดงานในสัญญานี้' });
+        }
+      }
+    }
+    
     const result = await db.query(
       `UPDATE contract_periods 
-       SET period_no = $1, due_date = $2, alert_days = $3, description = $4, amount = $5, status = $6, updated_at = NOW()
+       SET period_no = $1, due_date = $2, alert_days = $3, description = $4, amount = $5, status = $6, updated_at = NOW(), updated_by = $9
        WHERE id = $7 AND contract_id = $8 RETURNING *`,
-      [period_no, due_date, alert_days || 7, description || '', amount || 0, status || 'รอดำเนินการ', periodId, contractId]
+      [period_no, due_date, alert_days || 7, description || '', amount || 0, status || 'รอดำเนินการ', periodId, contractId, req.user.username]
     );
     
     if (result.rows.length === 0) {
@@ -503,6 +561,26 @@ exports.deleteContractPeriod = async (req, res) => {
   const periodId = req.params.periodId;
   
   try {
+    // Check contract exists and user has permission
+    const checkResult = await db.query('SELECT department_id FROM contracts WHERE id = $1 AND deleted_flag = FALSE', [contractId]);
+    if (checkResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Contract not found' });
+    }
+    
+    // Check permission: Admin can delete any period, regular users only their department's contracts
+    if (req.user.role !== 'admin') {
+      if (checkResult.rows[0].department_id !== req.user.department_id) {
+        // Check if contract is shared with delete permission
+        const shareCheck = await db.query(
+          'SELECT can_delete FROM contract_shares WHERE contract_id = $1 AND department_id = $2',
+          [contractId, req.user.department_id]
+        );
+        if (shareCheck.rows.length === 0 || !shareCheck.rows[0].can_delete) {
+          return res.status(403).json({ error: 'คุณไม่มีสิทธิ์ลบงวดงานในสัญญานี้' });
+        }
+      }
+    }
+    
     const result = await db.query(
       'DELETE FROM contract_periods WHERE id = $1 AND contract_id = $2 RETURNING *',
       [periodId, contractId]
