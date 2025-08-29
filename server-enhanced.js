@@ -113,8 +113,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/activity-logs', activityLogRoutes);
 
 // Cron job for alerts - รันทุก 8 โมงเช้า
-// สำหรับทดสอบ: เปลี่ยนเป็น '* * * * *' (ทุกนาที)
-// สำหรับ production: ใช้ '0 8 * * *' (8 โมงเช้าทุกวัน)
+
 const ALERT_SCHEDULE = process.env.ALERT_SCHEDULE || '* * * * *';
 
 cron.schedule(ALERT_SCHEDULE, () => {
