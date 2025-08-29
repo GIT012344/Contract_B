@@ -97,9 +97,9 @@ async function testAlertByDays() {
     console.log('\n========================================');
     console.log('⚙️ การตั้งค่า Alert Schedule:');
     console.log('========================================\n');
-    console.log(`ALERT_SCHEDULE: ${process.env.ALERT_SCHEDULE || '0 8 * * *'}`);
+    console.log(`ALERT_SCHEDULE: ${process.env.ALERT_SCHEDULE || '* * * * *'}`);
     
-    if (process.env.ALERT_SCHEDULE === '0 8 * * *') {
+    if (process.env.ALERT_SCHEDULE === '* * * * *') {
       console.log('→ แจ้งเตือนเวลา 8:00 น. ทุกวัน (Production)');
     } else if (process.env.ALERT_SCHEDULE === '* * * * *') {
       console.log('→ แจ้งเตือนทุกนาที (Testing)');

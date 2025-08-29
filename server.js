@@ -150,7 +150,7 @@ if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_TEST_ENDPOINTS =
         EMAIL_USER: process.env.EMAIL_USER ? '✓ Configured' : '✗ Not set',
         EMAIL_PASSWORD: process.env.EMAIL_PASSWORD ? '✓ Configured' : '✗ Not set',
         EMAIL_FROM: process.env.EMAIL_FROM ? '✓ Configured' : '✗ Not set',
-        ALERT_SCHEDULE: process.env.ALERT_SCHEDULE || '0 8 * * *',
+        ALERT_SCHEDULE: process.env.ALERT_SCHEDULE || '* * * * *',
         ALERT_CONTRACT_EXPIRY_DAYS: process.env.ALERT_CONTRACT_EXPIRY_DAYS || '7',
         ALERT_PERIOD_DUE_DAYS: process.env.ALERT_PERIOD_DUE_DAYS || '7'
       };
