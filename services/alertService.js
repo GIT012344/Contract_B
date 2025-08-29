@@ -75,6 +75,39 @@ exports.checkUpcomingPeriods = async () => {
   }
 };
 
+// Check if alert was already sent today
+const wasAlertSentToday = async (alertType, itemId, email) => {
+  try {
+    const result = await db.query(
+      `SELECT id FROM alert_tracking 
+       WHERE alert_type = $1 
+       AND item_id = $2 
+       AND email_address = $3 
+       AND sent_date = CURRENT_DATE`,
+      [alertType, itemId, email]
+    );
+    return result.rows.length > 0;
+  } catch (error) {
+    console.error('Error checking alert tracking:', error);
+    return false;
+  }
+};
+
+// Record that alert was sent
+const recordAlertSent = async (alertType, itemId, email) => {
+  try {
+    await db.query(
+      `INSERT INTO alert_tracking (alert_type, item_id, email_address) 
+       VALUES ($1, $2, $3) 
+       ON CONFLICT (alert_type, item_id, email_address, sent_date) 
+       DO NOTHING`,
+      [alertType, itemId, email]
+    );
+  } catch (error) {
+    console.error('Error recording alert sent:', error);
+  }
+};
+
 // ส่งอีเมลแจ้งเตือน
 exports.sendAlertEmail = async (to, subject, htmlContent) => {
   try {
@@ -204,28 +237,44 @@ exports.runDailyAlerts = async () => {
     if (expiringContracts.length > 0) {
       console.log(`Found ${expiringContracts.length} expiring contracts`);
       
-      // จัดกลุ่มตาม alert_emails
+      // จัดกลุ่มตาม alert_emails และกรองเฉพาะที่ยังไม่ได้ส่งวันนี้
       const emailGroups = {};
-      expiringContracts.forEach(contract => {
+      for (const contract of expiringContracts) {
         if (contract.alert_emails) {
           const emails = contract.alert_emails.split(',').map(e => e.trim()).filter(e => e);
-          emails.forEach(email => {
-            if (!emailGroups[email]) {
-              emailGroups[email] = [];
+          for (const email of emails) {
+            // Check if alert was already sent today for this contract
+            const alreadySent = await wasAlertSentToday('CONTRACT_EXPIRY', contract.id, email);
+            if (!alreadySent) {
+              if (!emailGroups[email]) {
+                emailGroups[email] = { contracts: [], contractIds: [] };
+              }
+              emailGroups[email].contracts.push(contract);
+              emailGroups[email].contractIds.push(contract.id);
+            } else {
+              console.log(`Alert already sent today for contract ${contract.contract_no} to ${email}`);
             }
-            emailGroups[email].push(contract);
-          });
+          }
         }
-      });
+      }
       
       // ส่งอีเมลแต่ละกลุ่ม
-      for (const [email, contracts] of Object.entries(emailGroups)) {
-        const html = exports.generateContractAlertHTML(contracts);
-        await exports.sendAlertEmail(
-          email,
-          'แจ้งเตือน: สัญญาใกล้หมดอายุ',
-          html
-        );
+      for (const [email, data] of Object.entries(emailGroups)) {
+        if (data.contracts.length > 0) {
+          const html = exports.generateContractAlertHTML(data.contracts);
+          const result = await exports.sendAlertEmail(
+            email,
+            'แจ้งเตือน: สัญญาใกล้หมดอายุ',
+            html
+          );
+          
+          // Record that alerts were sent
+          if (result.success) {
+            for (const contractId of data.contractIds) {
+              await recordAlertSent('CONTRACT_EXPIRY', contractId, email);
+            }
+          }
+        }
       }
     }
     
@@ -235,28 +284,44 @@ exports.runDailyAlerts = async () => {
     if (upcomingPeriods.length > 0) {
       console.log(`Found ${upcomingPeriods.length} upcoming periods`);
       
-      // จัดกลุ่มตาม alert_emails
+      // จัดกลุ่มตาม alert_emails และกรองเฉพาะที่ยังไม่ได้ส่งวันนี้
       const emailGroups = {};
-      upcomingPeriods.forEach(period => {
+      for (const period of upcomingPeriods) {
         if (period.alert_emails) {
           const emails = period.alert_emails.split(',').map(e => e.trim()).filter(e => e);
-          emails.forEach(email => {
-            if (!emailGroups[email]) {
-              emailGroups[email] = [];
+          for (const email of emails) {
+            // Check if alert was already sent today for this period
+            const alreadySent = await wasAlertSentToday('PERIOD_DUE', period.id, email);
+            if (!alreadySent) {
+              if (!emailGroups[email]) {
+                emailGroups[email] = { periods: [], periodIds: [] };
+              }
+              emailGroups[email].periods.push(period);
+              emailGroups[email].periodIds.push(period.id);
+            } else {
+              console.log(`Alert already sent today for period ${period.period_no} (contract ${period.contract_no}) to ${email}`);
             }
-            emailGroups[email].push(period);
-          });
+          }
         }
-      });
+      }
       
       // ส่งอีเมลแต่ละกลุ่ม
-      for (const [email, periods] of Object.entries(emailGroups)) {
-        const html = exports.generatePeriodAlertHTML(periods);
-        await exports.sendAlertEmail(
-          email,
-          'แจ้งเตือน: งวดงานใกล้ถึงกำหนด',
-          html
-        );
+      for (const [email, data] of Object.entries(emailGroups)) {
+        if (data.periods.length > 0) {
+          const html = exports.generatePeriodAlertHTML(data.periods);
+          const result = await exports.sendAlertEmail(
+            email,
+            'แจ้งเตือน: งวดงานใกล้ถึงกำหนด',
+            html
+          );
+          
+          // Record that alerts were sent
+          if (result.success) {
+            for (const periodId of data.periodIds) {
+              await recordAlertSent('PERIOD_DUE', periodId, email);
+            }
+          }
+        }
       }
     }
     
@@ -273,6 +338,19 @@ exports.runDailyAlerts = async () => {
       success: false,
       error: error.message
     };
+  }
+};
+
+// Clean up old tracking records (older than 30 days)
+exports.cleanupOldTracking = async () => {
+  try {
+    const result = await db.query(
+      `DELETE FROM alert_tracking 
+       WHERE sent_date < CURRENT_DATE - INTERVAL '30 days'`
+    );
+    console.log(`Cleaned up ${result.rowCount} old tracking records`);
+  } catch (error) {
+    console.error('Error cleaning up tracking records:', error);
   }
 };
 

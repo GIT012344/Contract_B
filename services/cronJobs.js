@@ -2,10 +2,13 @@ const cron = require('node-cron');
 const alertService = require('./alertService');
 const statusUpdateService = require('./statusUpdateService');
 
-// รัน alert monitoring ทุกวันเวลา 8:00 น.
+// รัน alert monitoring ตาม schedule ที่กำหนด
 const scheduleAlertMonitoring = () => {
-  cron.schedule('0 8 * * *', async () => {
-    console.log('Running scheduled alert monitoring...');
+  // Use environment variable or default to every minute for testing
+  const alertSchedule = process.env.ALERT_SCHEDULE || '* * * * *';
+  
+  cron.schedule(alertSchedule, async () => {
+    console.log('Running scheduled alert monitoring...', new Date().toISOString());
     try {
       const result = await alertService.runDailyAlerts();
       console.log('Alert monitoring completed:', result);
@@ -17,7 +20,7 @@ const scheduleAlertMonitoring = () => {
     timezone: "Asia/Bangkok"
   });
   
-  console.log('Alert monitoring scheduled for 8:00 AM daily');
+  console.log(`Alert monitoring scheduled with cron: ${alertSchedule}`);
 };
 
 // รัน status update ทุกวันเวลา 0:01 น.
@@ -38,6 +41,24 @@ const scheduleStatusUpdate = () => {
   console.log('Status update scheduled for 12:01 AM daily');
 };
 
+// Clean up old tracking records daily at 2 AM
+const scheduleCleanup = () => {
+  cron.schedule('0 2 * * *', async () => {
+    console.log('Running scheduled cleanup...');
+    try {
+      await alertService.cleanupOldTracking();
+      console.log('Cleanup completed');
+    } catch (error) {
+      console.error('Error in scheduled cleanup:', error);
+    }
+  }, {
+    scheduled: true,
+    timezone: "Asia/Bangkok"
+  });
+  
+  console.log('Cleanup scheduled for 2:00 AM daily');
+};
+
 // เริ่มต้น cron jobs ทั้งหมด
 exports.initializeCronJobs = () => {
   console.log('Initializing cron jobs...');
@@ -47,6 +68,9 @@ exports.initializeCronJobs = () => {
   
   // Schedule status updates
   scheduleStatusUpdate();
+  
+  // Schedule cleanup
+  scheduleCleanup();
   
   console.log('All cron jobs initialized');
 };
