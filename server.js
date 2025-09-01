@@ -46,6 +46,7 @@ const departmentRoutes = require('./routes/departmentRoutes');
 const userRoutes = require('./routes/userRoutes');
 const periodsRoutes = require('./routes/periodsRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
+const reportRoutes = require('./routes/reportRoutes');
 
 // Apply routes
 app.use('/api/auth', authRoutes);
@@ -56,6 +57,12 @@ app.use('/api/departments', departmentRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/periods', periodsRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/reports', reportRoutes);
+
+// Health check endpoint
+app.get('/api/health-check', (req, res) => {
+  res.json({ success: true, message: 'API is running' });
+});
 
 // Fix database constraint endpoint (temporary)
 app.get('/api/fix-constraint', async (req, res) => {
