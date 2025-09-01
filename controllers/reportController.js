@@ -1,5 +1,5 @@
-const pool = require('../config/database');
-const exportService = require('../services/exportService');
+const pool = require('../db');
+const { exportContractsToExcel, exportFinancialToExcel, exportContractsToPDF, exportFinancialToPDF } = require('../services/exportService');
 
 // Get Dashboard Metrics
 exports.getDashboardMetrics = async (req, res) => {
@@ -518,7 +518,7 @@ exports.exportToExcel = async (req, res) => {
         byDepartment: byDepartment.rows
       };
       
-      const buffer = await exportService.exportFinancialToExcel(data);
+      const buffer = await exportFinancialToExcel(data);
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', 'attachment; filename=financial-report.xlsx');
       res.send(buffer);
@@ -550,7 +550,7 @@ exports.exportToExcel = async (req, res) => {
         SELECT * FROM contracts ${whereClause} ORDER BY created_at DESC
       `, params);
       
-      const buffer = await exportService.exportContractsToExcel(contracts.rows);
+      const buffer = await exportContractsToExcel(contracts.rows);
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', 'attachment; filename=contracts-report.xlsx');
       res.send(buffer);
@@ -609,7 +609,7 @@ exports.exportToPDF = async (req, res) => {
         trends: trends.rows
       };
       
-      const buffer = await exportService.exportFinancialToPDF(data);
+      const buffer = await exportFinancialToPDF(data);
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', 'attachment; filename=financial-report.pdf');
       res.send(buffer);
@@ -655,7 +655,7 @@ exports.exportToPDF = async (req, res) => {
         contracts: contracts.rows
       };
       
-      const buffer = await exportService.exportContractsToPDF(data);
+      const buffer = await exportContractsToPDF(data);
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', 'attachment; filename=contracts-report.pdf');
       res.send(buffer);
