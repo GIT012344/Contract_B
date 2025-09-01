@@ -1,33 +1,38 @@
 const express = require('express');
 const router = express.Router();
-const { authenticateToken } = require('../middlewares/auth');
 const reportController = require('../controllers/reportController');
+const { authenticateToken } = require('../middlewares/auth');
 
-// All routes require authentication
-router.use(authenticateToken);
+// Dashboard Overview
+router.get('/dashboard', authenticateToken, reportController.getDashboardMetrics);
 
-// Dashboard statistics
-router.get('/dashboard-stats', reportController.getDashboardStats);
+// Contract Analytics
+router.get('/contracts/summary', authenticateToken, reportController.getContractSummary);
+router.get('/contracts/trends', authenticateToken, reportController.getContractTrends);
+router.get('/contracts/by-status', authenticateToken, reportController.getContractsByStatus);
+router.get('/contracts/by-department', authenticateToken, reportController.getContractsByDepartment);
+router.get('/contracts/expiring', authenticateToken, reportController.getExpiringContracts);
 
-// Department analysis
-router.get('/department-stats', reportController.getDepartmentStats);
+// Period Analytics
+router.get('/periods/summary', authenticateToken, reportController.getPeriodSummary);
+router.get('/periods/overdue', authenticateToken, reportController.getOverduePeriods);
+router.get('/periods/upcoming', authenticateToken, reportController.getUpcomingPeriods);
+router.get('/periods/performance', authenticateToken, reportController.getPeriodPerformance);
 
-// Timeline analysis
-router.get('/timeline-analysis', reportController.getTimelineAnalysis);
+// Financial Analytics
+router.get('/financial/summary', authenticateToken, reportController.getFinancialSummary);
+router.get('/financial/by-department', authenticateToken, reportController.getFinancialByDepartment);
+router.get('/financial/trends', authenticateToken, reportController.getFinancialTrends);
 
-// Financial summary
-router.get('/financial-summary', reportController.getFinancialSummary);
+// Department Analytics
+router.get('/departments/performance', authenticateToken, reportController.getDepartmentPerformance);
+router.get('/departments/comparison', authenticateToken, reportController.getDepartmentComparison);
 
-// Top contractors
-router.get('/top-contractors', reportController.getTopContractors);
+// Export Reports
+router.post('/export/excel', authenticateToken, reportController.exportToExcel);
+router.post('/export/pdf', authenticateToken, reportController.exportToPDF);
 
-// Alert summary
-router.get('/alert-summary', reportController.getAlertSummary);
-
-// Performance metrics
-router.get('/performance-metrics', reportController.getPerformanceMetrics);
-
-// Export report
-router.get('/export', reportController.exportReport);
+// Custom Reports
+router.post('/custom', authenticateToken, reportController.generateCustomReport);
 
 module.exports = router;

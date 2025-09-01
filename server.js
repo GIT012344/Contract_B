@@ -59,11 +59,6 @@ app.use('/api/periods', periodsRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/reports', reportRoutes);
 
-// Health check endpoint
-app.get('/api/health-check', (req, res) => {
-  res.json({ success: true, message: 'API is running' });
-});
-
 // Fix database constraint endpoint (temporary)
 app.get('/api/fix-constraint', async (req, res) => {
   const db = require('./db');

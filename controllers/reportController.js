@@ -1,465 +1,724 @@
 const pool = require('../config/database');
-const { format, startOfMonth, endOfMonth, subMonths } = require('date-fns');
+const exportService = require('../services/exportService');
 
-// Get comprehensive dashboard statistics
-exports.getDashboardStats = async (req, res) => {
+// Get Dashboard Metrics
+exports.getDashboardMetrics = async (req, res) => {
   try {
     const { startDate, endDate, department } = req.query;
     
     // Build WHERE clause
-    let whereClause = '';
+    let whereClause = 'WHERE 1=1';
     const params = [];
+    let paramIndex = 1;
     
-    if (startDate && endDate) {
-      params.push(startDate, endDate);
-      whereClause = `WHERE c.created_at BETWEEN $${params.length - 1} AND $${params.length}`;
+    if (startDate) {
+      whereClause += ` AND c.created_at >= $${paramIndex++}`;
+      params.push(startDate);
+    }
+    
+    if (endDate) {
+      whereClause += ` AND c.created_at <= $${paramIndex++}`;
+      params.push(endDate);
     }
     
     if (department) {
+      whereClause += ` AND c.department = $${paramIndex++}`;
       params.push(department);
-      whereClause += whereClause ? ` AND c.department = $${params.length}` : `WHERE c.department = $${params.length}`;
     }
-
-    // Get contract statistics
-    const contractStats = await pool.query(`
+    
+    // Get contract metrics
+    const contractMetrics = await pool.query(`
       SELECT 
         COUNT(*) as total_contracts,
         COUNT(CASE WHEN status = 'ACTIVE' THEN 1 END) as active_contracts,
-        COUNT(CASE WHEN status = 'PENDING' OR status = 'CRTD' THEN 1 END) as pending_contracts,
-        COUNT(CASE WHEN status = 'DELETED' THEN 1 END) as deleted_contracts,
-        COUNT(CASE WHEN status = 'EXPIRED' THEN 1 END) as expired_contracts,
-        SUM(CAST(contract_value AS DECIMAL)) as total_value,
-        AVG(CAST(contract_value AS DECIMAL)) as avg_value
+        COUNT(CASE WHEN status = 'PENDING' THEN 1 END) as pending_contracts,
+        COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END) as completed_contracts,
+        COUNT(CASE WHEN status = 'CANCELLED' THEN 1 END) as cancelled_contracts,
+        COUNT(CASE WHEN status = 'DELETED' THEN 1 END) as deleted_contracts
       FROM contracts c
       ${whereClause}
     `, params);
-
-    // Get period statistics  
-    const periodStats = await pool.query(`
+    
+    // Get period metrics
+    const periodMetrics = await pool.query(`
       SELECT 
         COUNT(*) as total_periods,
-        COUNT(CASE WHEN status = 'รอส่งมอบ' OR status = 'กำลังดำเนินการ' THEN 1 END) as pending_periods,
-        COUNT(CASE WHEN status = 'เสร็จสิ้น' THEN 1 END) as completed_periods,
-        COUNT(CASE WHEN status != 'เสร็จสิ้น' AND due_date < CURRENT_DATE THEN 1 END) as overdue_periods,
-        SUM(CAST(period_value AS DECIMAL)) as total_period_value,
-        AVG(CAST(period_value AS DECIMAL)) as avg_period_value
-      FROM contract_periods cp
-      INNER JOIN contracts c ON cp.contract_id = c.id
+        COUNT(CASE WHEN p.status = 'รอส่งมอบ' THEN 1 END) as pending_periods,
+        COUNT(CASE WHEN p.status = 'กำลังดำเนินการ' THEN 1 END) as in_progress_periods,
+        COUNT(CASE WHEN p.status = 'เสร็จสิ้น' THEN 1 END) as completed_periods,
+        COUNT(CASE WHEN p.status != 'เสร็จสิ้น' AND p.due_date < CURRENT_DATE THEN 1 END) as overdue_periods
+      FROM contract_periods p
+      INNER JOIN contracts c ON p.contract_id = c.id
       ${whereClause}
     `, params);
-
-    // Get alerts statistics
-    const alertStats = await pool.query(`
+    
+    // Get financial metrics
+    const financialMetrics = await pool.query(`
+      SELECT 
+        SUM(c.contract_value) as total_value,
+        AVG(c.contract_value) as average_value,
+        MAX(c.contract_value) as max_value,
+        MIN(c.contract_value) as min_value
+      FROM contracts c
+      ${whereClause}
+    `, params);
+    
+    // Get alert metrics
+    const alertMetrics = await pool.query(`
       SELECT 
         COUNT(DISTINCT c.id) as contracts_with_alerts,
-        COUNT(DISTINCT cp.id) as periods_with_alerts
+        COUNT(CASE WHEN (c.end_date - CURRENT_DATE) <= c.alert_days THEN 1 END) as active_alerts
       FROM contracts c
-      LEFT JOIN contract_periods cp ON c.id = cp.contract_id
-      WHERE (c.alert_days IS NOT NULL AND c.alert_days > 0)
-         OR (cp.alert_days IS NOT NULL AND cp.alert_days > 0)
-      ${whereClause ? ' AND ' + whereClause.replace('WHERE', '') : ''}
-    `, params);
-
+      WHERE c.alert_days IS NOT NULL AND c.status = 'ACTIVE'
+    `);
+    
     res.json({
-      contracts: contractStats.rows[0],
-      periods: periodStats.rows[0],
-      alerts: alertStats.rows[0],
-      dateRange: { startDate, endDate },
-      department
+      contracts: contractMetrics.rows[0],
+      periods: periodMetrics.rows[0],
+      financial: financialMetrics.rows[0],
+      alerts: alertMetrics.rows[0]
     });
   } catch (error) {
-    console.error('Error getting dashboard stats:', error);
-    res.status(500).json({ error: 'Failed to get dashboard statistics' });
+    console.error('Error getting dashboard metrics:', error);
+    res.status(500).json({ error: 'Failed to get dashboard metrics' });
   }
 };
 
-// Get department-wise statistics
-exports.getDepartmentStats = async (req, res) => {
+// Get Contract Summary
+exports.getContractSummary = async (req, res) => {
   try {
-    const { startDate, endDate } = req.query;
+    const { groupBy = 'status' } = req.query;
     
-    let whereClause = '';
-    const params = [];
-    
-    if (startDate && endDate) {
-      params.push(startDate, endDate);
-      whereClause = `WHERE created_at BETWEEN $1 AND $2`;
+    let query;
+    switch (groupBy) {
+      case 'department':
+        query = `
+          SELECT 
+            department as label,
+            COUNT(*) as count,
+            SUM(contract_value) as total_value
+          FROM contracts
+          GROUP BY department
+          ORDER BY count DESC
+        `;
+        break;
+      case 'type':
+        query = `
+          SELECT 
+            contract_type as label,
+            COUNT(*) as count,
+            SUM(contract_value) as total_value
+          FROM contracts
+          GROUP BY contract_type
+          ORDER BY count DESC
+        `;
+        break;
+      default:
+        query = `
+          SELECT 
+            status as label,
+            COUNT(*) as count,
+            SUM(contract_value) as total_value
+          FROM contracts
+          GROUP BY status
+          ORDER BY count DESC
+        `;
     }
+    
+    const result = await pool.query(query);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error getting contract summary:', error);
+    res.status(500).json({ error: 'Failed to get contract summary' });
+  }
+};
 
+// Get Contract Trends
+exports.getContractTrends = async (req, res) => {
+  try {
+    const { period = 'monthly', year = new Date().getFullYear() } = req.query;
+    
+    let query;
+    if (period === 'daily') {
+      query = `
+        SELECT 
+          DATE(created_at) as date,
+          COUNT(*) as new_contracts,
+          SUM(contract_value) as total_value
+        FROM contracts
+        WHERE created_at >= CURRENT_DATE - INTERVAL '30 days'
+        GROUP BY DATE(created_at)
+        ORDER BY date
+      `;
+    } else if (period === 'weekly') {
+      query = `
+        SELECT 
+          DATE_TRUNC('week', created_at) as week,
+          COUNT(*) as new_contracts,
+          SUM(contract_value) as total_value
+        FROM contracts
+        WHERE created_at >= CURRENT_DATE - INTERVAL '12 weeks'
+        GROUP BY DATE_TRUNC('week', created_at)
+        ORDER BY week
+      `;
+    } else {
+      query = `
+        SELECT 
+          TO_CHAR(created_at, 'YYYY-MM') as month,
+          COUNT(*) as new_contracts,
+          SUM(contract_value) as total_value
+        FROM contracts
+        WHERE EXTRACT(YEAR FROM created_at) = $1
+        GROUP BY TO_CHAR(created_at, 'YYYY-MM')
+        ORDER BY month
+      `;
+    }
+    
+    const result = await pool.query(query, period === 'monthly' ? [year] : []);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error getting contract trends:', error);
+    res.status(500).json({ error: 'Failed to get contract trends' });
+  }
+};
+
+// Get Contracts by Status
+exports.getContractsByStatus = async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        status,
+        COUNT(*) as count,
+        ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER(), 2) as percentage
+      FROM contracts
+      GROUP BY status
+      ORDER BY count DESC
+    `);
+    
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error getting contracts by status:', error);
+    res.status(500).json({ error: 'Failed to get contracts by status' });
+  }
+};
+
+// Get Contracts by Department
+exports.getContractsByDepartment = async (req, res) => {
+  try {
     const result = await pool.query(`
       SELECT 
         department,
         COUNT(*) as total_contracts,
         COUNT(CASE WHEN status = 'ACTIVE' THEN 1 END) as active,
-        COUNT(CASE WHEN status = 'PENDING' OR status = 'CRTD' THEN 1 END) as pending,
-        COUNT(CASE WHEN status = 'DELETED' THEN 1 END) as deleted,
-        COUNT(CASE WHEN status = 'EXPIRED' THEN 1 END) as expired,
-        SUM(CAST(contract_value AS DECIMAL)) as total_value,
-        AVG(CAST(contract_value AS DECIMAL)) as avg_value,
-        MIN(start_date) as earliest_contract,
-        MAX(end_date) as latest_contract
+        COUNT(CASE WHEN status = 'PENDING' THEN 1 END) as pending,
+        COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END) as completed,
+        SUM(contract_value) as total_value
       FROM contracts
-      ${whereClause}
       GROUP BY department
       ORDER BY total_contracts DESC
-    `, params);
-
+    `);
+    
     res.json(result.rows);
   } catch (error) {
-    console.error('Error getting department stats:', error);
-    res.status(500).json({ error: 'Failed to get department statistics' });
+    console.error('Error getting contracts by department:', error);
+    res.status(500).json({ error: 'Failed to get contracts by department' });
   }
 };
 
-// Get timeline analysis (monthly trends)
-exports.getTimelineAnalysis = async (req, res) => {
+// Get Expiring Contracts
+exports.getExpiringContracts = async (req, res) => {
   try {
-    const { months = 12 } = req.query;
+    const { days = 30 } = req.query;
     
-    // Get monthly contract creation trends
-    const contractTrends = await pool.query(`
+    const result = await pool.query(`
       SELECT 
-        TO_CHAR(created_at, 'YYYY-MM') as month,
-        COUNT(*) as new_contracts,
-        COUNT(CASE WHEN status = 'ACTIVE' THEN 1 END) as active,
-        COUNT(CASE WHEN status = 'EXPIRED' THEN 1 END) as expired,
-        SUM(CAST(contract_value AS DECIMAL)) as total_value
+        id,
+        contract_no,
+        contract_name,
+        vendor_name,
+        department,
+        end_date,
+        (end_date - CURRENT_DATE) as days_until_expiry,
+        contract_value
       FROM contracts
-      WHERE created_at >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '${months} months')
-      GROUP BY TO_CHAR(created_at, 'YYYY-MM')
-      ORDER BY month
-    `);
-
-    // Get monthly period completion trends
-    const periodTrends = await pool.query(`
-      SELECT 
-        TO_CHAR(due_date, 'YYYY-MM') as month,
-        COUNT(*) as total_periods,
-        COUNT(CASE WHEN status = 'เสร็จสิ้น' THEN 1 END) as completed,
-        COUNT(CASE WHEN status != 'เสร็จสิ้น' AND due_date < CURRENT_DATE THEN 1 END) as overdue,
-        SUM(CAST(period_value AS DECIMAL)) as total_value
-      FROM contract_periods
-      WHERE due_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '${months} months')
-      GROUP BY TO_CHAR(due_date, 'YYYY-MM')
-      ORDER BY month
-    `);
-
-    res.json({
-      contractTrends: contractTrends.rows,
-      periodTrends: periodTrends.rows
-    });
+      WHERE status = 'ACTIVE' 
+        AND end_date IS NOT NULL
+        AND (end_date - CURRENT_DATE) BETWEEN INTERVAL '0 days' AND INTERVAL '1 day' * $1
+      ORDER BY days_until_expiry
+    `, [days]);
+    
+    res.json(result.rows);
   } catch (error) {
-    console.error('Error getting timeline analysis:', error);
-    res.status(500).json({ error: 'Failed to get timeline analysis' });
+    console.error('Error getting expiring contracts:', error);
+    res.status(500).json({ error: 'Failed to get expiring contracts' });
   }
 };
 
-// Get financial summary
+// Get Period Summary
+exports.getPeriodSummary = async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        p.status,
+        COUNT(*) as count,
+        ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER(), 2) as percentage
+      FROM contract_periods p
+      GROUP BY p.status
+      ORDER BY count DESC
+    `);
+    
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error getting period summary:', error);
+    res.status(500).json({ error: 'Failed to get period summary' });
+  }
+};
+
+// Get Overdue Periods
+exports.getOverduePeriods = async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        p.id,
+        p.period_no,
+        p.period_name,
+        p.due_date,
+        p.status,
+        (CURRENT_DATE - p.due_date) as days_overdue,
+        c.contract_no,
+        c.contract_name,
+        c.department
+      FROM contract_periods p
+      INNER JOIN contracts c ON p.contract_id = c.id
+      WHERE p.status != 'เสร็จสิ้น' 
+        AND p.due_date < CURRENT_DATE
+      ORDER BY days_overdue DESC
+    `);
+    
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error getting overdue periods:', error);
+    res.status(500).json({ error: 'Failed to get overdue periods' });
+  }
+};
+
+// Get Upcoming Periods
+exports.getUpcomingPeriods = async (req, res) => {
+  try {
+    const { days = 30 } = req.query;
+    
+    const result = await pool.query(`
+      SELECT 
+        p.id,
+        p.period_no,
+        p.period_name,
+        p.due_date,
+        p.status,
+        (p.due_date - CURRENT_DATE) as days_until_due,
+        c.contract_no,
+        c.contract_name,
+        c.department
+      FROM contract_periods p
+      INNER JOIN contracts c ON p.contract_id = c.id
+      WHERE p.status != 'เสร็จสิ้น' 
+        AND p.due_date >= CURRENT_DATE
+        AND (p.due_date - CURRENT_DATE) <= INTERVAL '1 day' * $1
+      ORDER BY days_until_due
+    `, [days]);
+    
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error getting upcoming periods:', error);
+    res.status(500).json({ error: 'Failed to get upcoming periods' });
+  }
+};
+
+// Get Period Performance
+exports.getPeriodPerformance = async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        DATE_TRUNC('month', p.due_date) as month,
+        COUNT(*) as total_periods,
+        COUNT(CASE WHEN p.status = 'เสร็จสิ้น' AND p.actual_date <= p.due_date THEN 1 END) as on_time,
+        COUNT(CASE WHEN p.status = 'เสร็จสิ้น' AND p.actual_date > p.due_date THEN 1 END) as late,
+        COUNT(CASE WHEN p.status != 'เสร็จสิ้น' AND p.due_date < CURRENT_DATE THEN 1 END) as overdue
+      FROM contract_periods p
+      WHERE p.due_date >= CURRENT_DATE - INTERVAL '12 months'
+      GROUP BY DATE_TRUNC('month', p.due_date)
+      ORDER BY month
+    `);
+    
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error getting period performance:', error);
+    res.status(500).json({ error: 'Failed to get period performance' });
+  }
+};
+
+// Get Financial Summary
 exports.getFinancialSummary = async (req, res) => {
   try {
-    const { startDate, endDate, groupBy = 'department' } = req.query;
+    const { year = new Date().getFullYear() } = req.query;
     
-    let whereClause = '';
-    const params = [];
+    const result = await pool.query(`
+      SELECT 
+        TO_CHAR(created_at, 'Month') as month,
+        SUM(contract_value) as total_value,
+        AVG(contract_value) as avg_value,
+        COUNT(*) as contract_count
+      FROM contracts
+      WHERE EXTRACT(YEAR FROM created_at) = $1
+      GROUP BY EXTRACT(MONTH FROM created_at), TO_CHAR(created_at, 'Month')
+      ORDER BY EXTRACT(MONTH FROM created_at)
+    `, [year]);
     
-    if (startDate && endDate) {
-      params.push(startDate, endDate);
-      whereClause = `WHERE c.created_at BETWEEN $1 AND $2`;
-    }
-
-    let groupByColumn = groupBy === 'type' ? 'c.contract_type' : 'c.department';
-
-    const financialData = await pool.query(`
-      SELECT 
-        ${groupByColumn} as category,
-        COUNT(DISTINCT c.id) as contract_count,
-        SUM(CAST(c.contract_value AS DECIMAL)) as total_contract_value,
-        AVG(CAST(c.contract_value AS DECIMAL)) as avg_contract_value,
-        COUNT(cp.id) as period_count,
-        SUM(CAST(cp.period_value AS DECIMAL)) as total_period_value,
-        SUM(CASE WHEN cp.status = 'เสร็จสิ้น' THEN CAST(cp.period_value AS DECIMAL) ELSE 0 END) as completed_value,
-        SUM(CASE WHEN cp.status != 'เสร็จสิ้น' THEN CAST(cp.period_value AS DECIMAL) ELSE 0 END) as pending_value
-      FROM contracts c
-      LEFT JOIN contract_periods cp ON c.id = cp.contract_id
-      ${whereClause}
-      GROUP BY ${groupByColumn}
-      ORDER BY total_contract_value DESC NULLS LAST
-    `, params);
-
-    // Get overall summary
-    const summary = await pool.query(`
-      SELECT 
-        SUM(CAST(c.contract_value AS DECIMAL)) as total_budget,
-        SUM(CASE WHEN cp.status = 'เสร็จสิ้น' THEN CAST(cp.period_value AS DECIMAL) ELSE 0 END) as spent_amount,
-        SUM(CASE WHEN cp.status != 'เสร็จสิ้น' THEN CAST(cp.period_value AS DECIMAL) ELSE 0 END) as remaining_amount,
-        COUNT(DISTINCT c.id) as total_contracts,
-        COUNT(DISTINCT CASE WHEN c.status = 'ACTIVE' THEN c.id END) as active_contracts
-      FROM contracts c
-      LEFT JOIN contract_periods cp ON c.id = cp.contract_id
-      ${whereClause}
-    `, params);
-
-    res.json({
-      breakdown: financialData.rows,
-      summary: summary.rows[0],
-      groupBy,
-      dateRange: { startDate, endDate }
-    });
+    res.json(result.rows);
   } catch (error) {
     console.error('Error getting financial summary:', error);
     res.status(500).json({ error: 'Failed to get financial summary' });
   }
 };
 
-// Get top contractors
-exports.getTopContractors = async (req, res) => {
+// Get Financial by Department
+exports.getFinancialByDepartment = async (req, res) => {
   try {
-    const { limit = 10, startDate, endDate } = req.query;
-    
-    let whereClause = '';
-    const params = [limit];
-    
-    if (startDate && endDate) {
-      params.push(startDate, endDate);
-      whereClause = `WHERE created_at BETWEEN $2 AND $3`;
-    }
-
     const result = await pool.query(`
       SELECT 
-        contact_name as contractor,
-        COUNT(*) as contract_count,
-        SUM(CAST(contract_value AS DECIMAL)) as total_value,
-        AVG(CAST(contract_value AS DECIMAL)) as avg_value,
-        COUNT(CASE WHEN status = 'ACTIVE' THEN 1 END) as active_contracts,
-        COUNT(CASE WHEN status = 'EXPIRED' THEN 1 END) as expired_contracts,
-        STRING_AGG(DISTINCT department, ', ') as departments
+        department,
+        SUM(contract_value) as total_value,
+        AVG(contract_value) as avg_value,
+        MAX(contract_value) as max_value,
+        MIN(contract_value) as min_value,
+        COUNT(*) as contract_count
       FROM contracts
-      ${whereClause}
-      GROUP BY contact_name
-      HAVING contact_name IS NOT NULL AND contact_name != ''
-      ORDER BY total_value DESC NULLS LAST
-      LIMIT $1
-    `, params);
-
+      WHERE status != 'DELETED'
+      GROUP BY department
+      ORDER BY total_value DESC
+    `);
+    
     res.json(result.rows);
   } catch (error) {
-    console.error('Error getting top contractors:', error);
-    res.status(500).json({ error: 'Failed to get top contractors' });
+    console.error('Error getting financial by department:', error);
+    res.status(500).json({ error: 'Failed to get financial by department' });
   }
 };
 
-// Get alert summary
-exports.getAlertSummary = async (req, res) => {
+// Get Financial Trends
+exports.getFinancialTrends = async (req, res) => {
   try {
-    const { days = 30 } = req.query;
+    const result = await pool.query(`
+      WITH monthly_data AS (
+        SELECT 
+          TO_CHAR(created_at, 'YYYY-MM') as month,
+          SUM(contract_value) as total_value,
+          COUNT(*) as contract_count
+        FROM contracts
+        WHERE created_at >= CURRENT_DATE - INTERVAL '12 months'
+        GROUP BY TO_CHAR(created_at, 'YYYY-MM')
+      )
+      SELECT 
+        month,
+        total_value,
+        contract_count,
+        LAG(total_value) OVER (ORDER BY month) as prev_value,
+        ROUND((total_value - LAG(total_value) OVER (ORDER BY month)) * 100.0 / 
+              NULLIF(LAG(total_value) OVER (ORDER BY month), 0), 2) as growth_rate
+      FROM monthly_data
+      ORDER BY month
+    `);
     
-    // Contracts expiring soon
-    const expiringContracts = await pool.query(`
-      SELECT 
-        id,
-        contract_no,
-        department,
-        end_date,
-        alert_days,
-        DATE_PART('day', end_date - CURRENT_DATE) as days_remaining,
-        contact_name,
-        contract_value
-      FROM contracts
-      WHERE status = 'ACTIVE'
-        AND end_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '${days} days'
-      ORDER BY end_date
-    `);
-
-    // Periods due soon
-    const duePeriods = await pool.query(`
-      SELECT 
-        cp.id,
-        cp.period_no,
-        cp.due_date,
-        cp.alert_days,
-        cp.period_value,
-        DATE_PART('day', cp.due_date - CURRENT_DATE) as days_remaining,
-        c.contract_no,
-        c.department,
-        c.contact_name
-      FROM contract_periods cp
-      INNER JOIN contracts c ON cp.contract_id = c.id
-      WHERE cp.status != 'เสร็จสิ้น'
-        AND cp.due_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '${days} days'
-      ORDER BY cp.due_date
-    `);
-
-    // Overdue items
-    const overdueItems = await pool.query(`
-      SELECT 
-        'contract' as type,
-        id,
-        contract_no as item_no,
-        department,
-        end_date as due_date,
-        DATE_PART('day', CURRENT_DATE - end_date) as days_overdue,
-        contact_name,
-        contract_value as value
-      FROM contracts
-      WHERE status = 'ACTIVE'
-        AND end_date < CURRENT_DATE
-      UNION ALL
-      SELECT 
-        'period' as type,
-        cp.id,
-        CONCAT(c.contract_no, '-', cp.period_no) as item_no,
-        c.department,
-        cp.due_date,
-        DATE_PART('day', CURRENT_DATE - cp.due_date) as days_overdue,
-        c.contact_name,
-        cp.period_value as value
-      FROM contract_periods cp
-      INNER JOIN contracts c ON cp.contract_id = c.id
-      WHERE cp.status != 'เสร็จสิ้น'
-        AND cp.due_date < CURRENT_DATE
-      ORDER BY days_overdue DESC
-    `);
-
-    res.json({
-      expiringContracts: expiringContracts.rows,
-      duePeriods: duePeriods.rows,
-      overdueItems: overdueItems.rows,
-      summary: {
-        totalExpiring: expiringContracts.rows.length,
-        totalDue: duePeriods.rows.length,
-        totalOverdue: overdueItems.rows.length
-      }
-    });
+    res.json(result.rows);
   } catch (error) {
-    console.error('Error getting alert summary:', error);
-    res.status(500).json({ error: 'Failed to get alert summary' });
+    console.error('Error getting financial trends:', error);
+    res.status(500).json({ error: 'Failed to get financial trends' });
   }
 };
 
-// Get performance metrics
-exports.getPerformanceMetrics = async (req, res) => {
+// Get Department Performance
+exports.getDepartmentPerformance = async (req, res) => {
   try {
-    const { year = new Date().getFullYear() } = req.query;
-    
-    // Contract completion rate
-    const completionRate = await pool.query(`
-      SELECT 
-        TO_CHAR(created_at, 'MM') as month,
-        COUNT(*) as total,
-        COUNT(CASE WHEN status = 'ACTIVE' OR status = 'EXPIRED' THEN 1 END) as successful,
-        COUNT(CASE WHEN status = 'DELETED' THEN 1 END) as cancelled,
-        ROUND(COUNT(CASE WHEN status = 'ACTIVE' OR status = 'EXPIRED' THEN 1 END)::NUMERIC / 
-              NULLIF(COUNT(*)::NUMERIC, 0) * 100, 2) as success_rate
-      FROM contracts
-      WHERE EXTRACT(YEAR FROM created_at) = $1
-      GROUP BY TO_CHAR(created_at, 'MM')
-      ORDER BY month
-    `, [year]);
-
-    // Period delivery performance
-    const deliveryPerformance = await pool.query(`
-      SELECT 
-        TO_CHAR(due_date, 'MM') as month,
-        COUNT(*) as total_periods,
-        COUNT(CASE WHEN status = 'เสร็จสิ้น' AND actual_date <= due_date THEN 1 END) as on_time,
-        COUNT(CASE WHEN status = 'เสร็จสิ้น' AND actual_date > due_date THEN 1 END) as late,
-        COUNT(CASE WHEN status != 'เสร็จสิ้น' AND due_date < CURRENT_DATE THEN 1 END) as overdue,
-        ROUND(COUNT(CASE WHEN status = 'เสร็จสิ้น' AND actual_date <= due_date THEN 1 END)::NUMERIC / 
-              NULLIF(COUNT(CASE WHEN status = 'เสร็จสิ้น' THEN 1 END)::NUMERIC, 0) * 100, 2) as on_time_rate
-      FROM contract_periods
-      WHERE EXTRACT(YEAR FROM due_date) = $1
-      GROUP BY TO_CHAR(due_date, 'MM')
-      ORDER BY month
-    `, [year]);
-
-    // Department performance
-    const departmentPerformance = await pool.query(`
+    const result = await pool.query(`
       SELECT 
         c.department,
-        COUNT(DISTINCT c.id) as contracts,
-        COUNT(cp.id) as periods,
-        COUNT(CASE WHEN cp.status = 'เสร็จสิ้น' THEN 1 END) as completed_periods,
-        ROUND(COUNT(CASE WHEN cp.status = 'เสร็จสิ้น' THEN 1 END)::NUMERIC / 
-              NULLIF(COUNT(cp.id)::NUMERIC, 0) * 100, 2) as completion_rate,
-        SUM(CAST(c.contract_value AS DECIMAL)) as total_value,
-        AVG(DATE_PART('day', cp.actual_date - cp.due_date)) as avg_delay_days
+        COUNT(DISTINCT c.id) as total_contracts,
+        COUNT(DISTINCT p.id) as total_periods,
+        COUNT(DISTINCT CASE WHEN p.status = 'เสร็จสิ้น' THEN p.id END) as completed_periods,
+        COUNT(DISTINCT CASE WHEN p.status != 'เสร็จสิ้น' AND p.due_date < CURRENT_DATE THEN p.id END) as overdue_periods,
+        ROUND(COUNT(DISTINCT CASE WHEN p.status = 'เสร็จสิ้น' THEN p.id END) * 100.0 / 
+              NULLIF(COUNT(DISTINCT p.id), 0), 2) as completion_rate
       FROM contracts c
-      LEFT JOIN contract_periods cp ON c.id = cp.contract_id
-      WHERE EXTRACT(YEAR FROM c.created_at) = $1
+      LEFT JOIN contract_periods p ON c.id = p.contract_id
       GROUP BY c.department
-      ORDER BY completion_rate DESC NULLS LAST
-    `, [year]);
-
-    res.json({
-      year,
-      completionRate: completionRate.rows,
-      deliveryPerformance: deliveryPerformance.rows,
-      departmentPerformance: departmentPerformance.rows
-    });
+      ORDER BY completion_rate DESC
+    `);
+    
+    res.json(result.rows);
   } catch (error) {
-    console.error('Error getting performance metrics:', error);
-    res.status(500).json({ error: 'Failed to get performance metrics' });
+    console.error('Error getting department performance:', error);
+    res.status(500).json({ error: 'Failed to get department performance' });
   }
 };
 
-// Export report data
-exports.exportReport = async (req, res) => {
+// Get Department Comparison
+exports.getDepartmentComparison = async (req, res) => {
   try {
-    const { type, format, startDate, endDate } = req.query;
+    const result = await pool.query(`
+      SELECT 
+        department,
+        COUNT(CASE WHEN status = 'ACTIVE' THEN 1 END) as active,
+        COUNT(CASE WHEN status = 'PENDING' THEN 1 END) as pending,
+        COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END) as completed,
+        COUNT(CASE WHEN status = 'CANCELLED' THEN 1 END) as cancelled,
+        SUM(contract_value) as total_value,
+        AVG(contract_value) as avg_value
+      FROM contracts
+      GROUP BY department
+      ORDER BY department
+    `);
+    
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error getting department comparison:', error);
+    res.status(500).json({ error: 'Failed to get department comparison' });
+  }
+};
+
+exports.exportToExcel = async (req, res) => {
+  try {
+    const { type = 'contracts', startDate, endDate, department } = req.query;
     
     let data;
-    switch (type) {
-      case 'contracts':
-        const contracts = await pool.query(`
-          SELECT 
-            contract_no as "เลขที่สัญญา",
-            department as "แผนก",
-            contact_name as "ผู้ติดต่อ",
-            contract_type as "ประเภท",
-            start_date as "วันเริ่มต้น",
-            end_date as "วันสิ้นสุด",
-            contract_value as "มูลค่า",
-            status as "สถานะ",
-            alert_days as "วันแจ้งเตือน"
-          FROM contracts
-          WHERE created_at BETWEEN $1 AND $2
-          ORDER BY created_at DESC
-        `, [startDate || '1900-01-01', endDate || '2100-12-31']);
-        data = contracts.rows;
-        break;
-        
-      case 'periods':
-        const periods = await pool.query(`
-          SELECT 
-            c.contract_no as "เลขที่สัญญา",
-            cp.period_no as "งวดที่",
-            cp.due_date as "วันครบกำหนด",
-            cp.period_value as "มูลค่างวด",
-            cp.status as "สถานะ",
-            cp.actual_date as "วันที่ส่งมอบจริง",
-            cp.alert_days as "วันแจ้งเตือน"
-          FROM contract_periods cp
-          INNER JOIN contracts c ON cp.contract_id = c.id
-          WHERE cp.due_date BETWEEN $1 AND $2
-          ORDER BY cp.due_date
-        `, [startDate || '1900-01-01', endDate || '2100-12-31']);
-        data = periods.rows;
-        break;
-        
-      default:
-        return res.status(400).json({ error: 'Invalid report type' });
+    if (type === 'financial') {
+      // Get financial data
+      const summary = await pool.query(`
+        SELECT 
+          COUNT(*) as total_contracts,
+          SUM(contract_value) as total_value,
+          AVG(contract_value) as avg_value,
+          SUM(CASE WHEN status = 'ACTIVE' THEN contract_value ELSE 0 END) as active_value,
+          SUM(CASE WHEN status = 'COMPLETED' OR status = 'เสร็จสิ้น' THEN contract_value ELSE 0 END) as completed_value
+        FROM contracts
+      `);
+      
+      const byDepartment = await pool.query(`
+        SELECT 
+          department,
+          COUNT(*) as contract_count,
+          SUM(contract_value) as total_value,
+          AVG(contract_value) as avg_value,
+          ROUND(SUM(contract_value) * 100.0 / NULLIF((SELECT SUM(contract_value) FROM contracts), 0), 2) as percentage
+        FROM contracts
+        GROUP BY department
+        ORDER BY total_value DESC
+      `);
+      
+      data = {
+        summary: summary.rows[0],
+        byDepartment: byDepartment.rows
+      };
+      
+      const buffer = await exportService.exportFinancialToExcel(data);
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename=financial-report.xlsx');
+      res.send(buffer);
+    } else {
+      // Get contracts data
+      let whereConditions = [];
+      let params = [];
+      let paramIndex = 1;
+      
+      if (startDate) {
+        whereConditions.push(`start_date >= $${paramIndex}`);
+        params.push(startDate);
+        paramIndex++;
+      }
+      if (endDate) {
+        whereConditions.push(`end_date <= $${paramIndex}`);
+        params.push(endDate);
+        paramIndex++;
+      }
+      if (department) {
+        whereConditions.push(`department = $${paramIndex}`);
+        params.push(department);
+        paramIndex++;
+      }
+      
+      const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
+      
+      const contracts = await pool.query(`
+        SELECT * FROM contracts ${whereClause} ORDER BY created_at DESC
+      `, params);
+      
+      const buffer = await exportService.exportContractsToExcel(contracts.rows);
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename=contracts-report.xlsx');
+      res.send(buffer);
     }
-
-    // For now, return JSON. In production, you'd convert to CSV/Excel
-    res.json({
-      type,
-      format,
-      dateRange: { startDate, endDate },
-      data,
-      count: data.length
-    });
   } catch (error) {
-    console.error('Error exporting report:', error);
-    res.status(500).json({ error: 'Failed to export report' });
+    console.error('Error exporting to Excel:', error);
+    res.status(500).json({ error: 'Failed to export to Excel' });
   }
 };
+
+// Export to PDF
+exports.exportToPDF = async (req, res) => {
+  try {
+    const { type = 'contracts', startDate, endDate, department } = req.query;
+    
+    let data;
+    if (type === 'financial') {
+      // Get financial data
+      const summary = await pool.query(`
+        SELECT 
+          COUNT(*) as total_contracts,
+          SUM(contract_value) as total_value,
+          AVG(contract_value) as avg_value,
+          SUM(CASE WHEN status = 'ACTIVE' THEN contract_value ELSE 0 END) as active_value,
+          SUM(CASE WHEN status = 'COMPLETED' OR status = 'เสร็จสิ้น' THEN contract_value ELSE 0 END) as completed_value
+        FROM contracts
+      `);
+      
+      const byDepartment = await pool.query(`
+        SELECT 
+          department,
+          COUNT(*) as contract_count,
+          SUM(contract_value) as total_value,
+          AVG(contract_value) as avg_value,
+          ROUND(SUM(contract_value) * 100.0 / NULLIF((SELECT SUM(contract_value) FROM contracts), 0), 2) as percentage
+        FROM contracts
+        GROUP BY department
+        ORDER BY total_value DESC
+      `);
+      
+      const trends = await pool.query(`
+        SELECT 
+          TO_CHAR(start_date, 'YYYY-MM') as month,
+          COUNT(*) as count,
+          SUM(contract_value) as total_value
+        FROM contracts
+        WHERE start_date IS NOT NULL
+        GROUP BY TO_CHAR(start_date, 'YYYY-MM')
+        ORDER BY month DESC
+        LIMIT 12
+      `);
+      
+      data = {
+        summary: summary.rows[0],
+        byDepartment: byDepartment.rows,
+        trends: trends.rows
+      };
+      
+      const buffer = await exportService.exportFinancialToPDF(data);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'attachment; filename=financial-report.pdf');
+      res.send(buffer);
+    } else {
+      // Get contracts data with summary
+      let whereConditions = [];
+      let params = [];
+      let paramIndex = 1;
+      
+      if (startDate) {
+        whereConditions.push(`start_date >= $${paramIndex}`);
+        params.push(startDate);
+        paramIndex++;
+      }
+      if (endDate) {
+        whereConditions.push(`end_date <= $${paramIndex}`);
+        params.push(endDate);
+        paramIndex++;
+      }
+      if (department) {
+        whereConditions.push(`department = $${paramIndex}`);
+        params.push(department);
+        paramIndex++;
+      }
+      
+      const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
+      
+      const contracts = await pool.query(`
+        SELECT * FROM contracts ${whereClause} ORDER BY created_at DESC LIMIT 50
+      `, params);
+      
+      const summary = await pool.query(`
+        SELECT 
+          COUNT(*) as total_contracts,
+          COUNT(CASE WHEN status = 'ACTIVE' THEN 1 END) as active_contracts,
+          COUNT(CASE WHEN status = 'PENDING' OR status = 'รอดำเนินการ' THEN 1 END) as pending_contracts,
+          COUNT(CASE WHEN status = 'COMPLETED' OR status = 'เสร็จสิ้น' THEN 1 END) as completed_contracts
+        FROM contracts ${whereClause}
+      `, params);
+      
+      data = {
+        summary: summary.rows[0],
+        contracts: contracts.rows
+      };
+      
+      const buffer = await exportService.exportContractsToPDF(data);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'attachment; filename=contracts-report.pdf');
+      res.send(buffer);
+    }
+  } catch (error) {
+    console.error('Error exporting to PDF:', error);
+    res.status(500).json({ error: 'Failed to export to PDF' });
+  }
+};
+// Generate Custom Report
+exports.generateCustomReport = async (req, res) => {
+  try {
+    const { 
+      reportType,
+      startDate,
+      endDate,
+      departments,
+      statuses,
+      groupBy,
+      sortBy,
+      includeCharts
+    } = req.body;
+    
+    // Build dynamic query based on parameters
+    let query = 'SELECT * FROM contracts WHERE 1=1';
+    const params = [];
+    let paramIndex = 1;
+    
+    if (startDate) {
+      query += ` AND created_at >= $${paramIndex++}`;
+      params.push(startDate);
+    }
+    
+    if (endDate) {
+      query += ` AND created_at <= $${paramIndex++}`;
+      params.push(endDate);
+    }
+    
+    if (departments && departments.length > 0) {
+      query += ` AND department = ANY($${paramIndex++})`;
+      params.push(departments);
+    }
+    
+    if (statuses && statuses.length > 0) {
+      query += ` AND status = ANY($${paramIndex++})`;
+      params.push(statuses);
+    }
+    
+    if (sortBy) {
+      query += ` ORDER BY ${sortBy}`;
+    }
+    
+    const result = await pool.query(query, params);
+    
+    res.json({
+      data: result.rows,
+      parameters: req.body,
+      generated_at: new Date()
+    });
+  } catch (error) {
+    console.error('Error generating custom report:', error);
+    res.status(500).json({ error: 'Failed to generate custom report' });
+  }
+};
+
+module.exports = exports;
