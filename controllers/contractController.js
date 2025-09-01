@@ -540,9 +540,9 @@ exports.updateContractPeriod = async (req, res) => {
     
     const result = await db.query(
       `UPDATE contract_periods 
-       SET period_no = $1, due_date = $2, alert_days = $3, description = $4, amount = $5, status = $6, updated_at = NOW(), updated_by = $9
+       SET period_no = $1, due_date = $2, alert_days = $3, description = $4, amount = $5, status = $6, updated_at = NOW()
        WHERE id = $7 AND contract_id = $8 RETURNING *`,
-      [period_no, due_date, alert_days || 7, description || '', amount || 0, status || 'รอดำเนินการ', periodId, contractId, req.user.username]
+      [period_no, due_date, alert_days || 7, description || '', amount || 0, status || 'รอดำเนินการ', periodId, contractId]
     );
     
     if (result.rows.length === 0) {
