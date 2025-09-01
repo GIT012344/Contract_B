@@ -3,36 +3,25 @@ const router = express.Router();
 const reportController = require('../controllers/reportController');
 const { authenticateToken } = require('../middlewares/auth');
 
-// Dashboard Overview
-router.get('/dashboard', authenticateToken, reportController.getDashboardMetrics);
+// All routes require authentication
+router.use(authenticateToken);
 
-// Contract Analytics
-router.get('/contracts/summary', authenticateToken, reportController.getContractSummary);
-router.get('/contracts/trends', authenticateToken, reportController.getContractTrends);
-router.get('/contracts/by-status', authenticateToken, reportController.getContractsByStatus);
-router.get('/contracts/by-department', authenticateToken, reportController.getContractsByDepartment);
-router.get('/contracts/expiring', authenticateToken, reportController.getExpiringContracts);
+// Dashboard statistics
+router.get('/dashboard', reportController.getDashboardStats);
 
-// Period Analytics
-router.get('/periods/summary', authenticateToken, reportController.getPeriodSummary);
-router.get('/periods/overdue', authenticateToken, reportController.getOverduePeriods);
-router.get('/periods/upcoming', authenticateToken, reportController.getUpcomingPeriods);
-router.get('/periods/performance', authenticateToken, reportController.getPeriodPerformance);
+// Contract reports with filters
+router.get('/contracts', reportController.getContractReports);
 
-// Financial Analytics
-router.get('/financial/summary', authenticateToken, reportController.getFinancialSummary);
-router.get('/financial/by-department', authenticateToken, reportController.getFinancialByDepartment);
-router.get('/financial/trends', authenticateToken, reportController.getFinancialTrends);
+// Financial reports
+router.get('/financial', reportController.getFinancialReports);
 
-// Department Analytics
-router.get('/departments/performance', authenticateToken, reportController.getDepartmentPerformance);
-router.get('/departments/comparison', authenticateToken, reportController.getDepartmentComparison);
+// Period analysis
+router.get('/periods', reportController.getPeriodAnalysis);
 
-// Export Reports
-router.post('/export/excel', authenticateToken, reportController.exportToExcel);
-router.post('/export/pdf', authenticateToken, reportController.exportToPDF);
+// Performance metrics
+router.get('/performance', reportController.getPerformanceMetrics);
 
-// Custom Reports
-router.post('/custom', authenticateToken, reportController.generateCustomReport);
+// Export report data
+router.post('/export', reportController.exportReport);
 
 module.exports = router;
