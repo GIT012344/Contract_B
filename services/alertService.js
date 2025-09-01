@@ -48,8 +48,11 @@ exports.checkExpiringContracts = async (daysBeforeExpiry = 7) => {
 };
 
 // ตรวจสอบงวดงานที่ใกล้ถึงกำหนด
-exports.checkUpcomingPeriods = async () => {
+exports.checkUpcomingPeriods = async (daysAhead = null) => {
   try {
+    // Use environment variable, parameter, or default to 7 days
+    const alertDays = daysAhead || process.env.ALERT_PERIOD_DUE_DAYS || 7;
+    
     const query = `
       SELECT 
         p.*,
@@ -62,12 +65,12 @@ exports.checkUpcomingPeriods = async () => {
       WHERE c.deleted_flag = FALSE 
         AND p.status != 'เสร็จสิ้น'
         AND p.due_date IS NOT NULL
-        AND (p.due_date - CURRENT_DATE) <= p.alert_days
+        AND (p.due_date - CURRENT_DATE) <= GREATEST(COALESCE(p.alert_days, $1), $1)
         AND (p.due_date - CURRENT_DATE) >= 0
       ORDER BY p.due_date ASC
     `;
     
-    const result = await db.query(query);
+    const result = await db.query(query, [alertDays]);
     return result.rows;
   } catch (error) {
     console.error('Error checking upcoming periods:', error);
@@ -128,7 +131,7 @@ exports.sendAlertEmail = async (to, subject, htmlContent) => {
     };
 
     const info = await transporter.sendMail(mailOptions);
-    console.log('Email sent:', info.messageId);
+    console.log(`[Email] Sent to ${to} (ID: ${info.messageId})`);
     return { success: true, messageId: info.messageId };
   } catch (error) {
     console.error('Error sending email:', error);
@@ -138,6 +141,8 @@ exports.sendAlertEmail = async (to, subject, htmlContent) => {
 
 // สร้าง HTML สำหรับอีเมลแจ้งเตือนสัญญา
 exports.generateContractAlertHTML = (contracts) => {
+  const frontendUrl = process.env.FRONTEND_URL || 'https://contract-f.onrender.com';
+  
   let html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <h2 style="color: #2563eb;">แจ้งเตือนสัญญาใกล้หมดอายุ</h2>
@@ -149,6 +154,7 @@ exports.generateContractAlertHTML = (contracts) => {
             <th style="padding: 8px; border: 1px solid #d1d5db;">ชื่อสัญญา</th>
             <th style="padding: 8px; border: 1px solid #d1d5db;">วันหมดอายุ</th>
             <th style="padding: 8px; border: 1px solid #d1d5db;">เหลือเวลา</th>
+            <th style="padding: 8px; border: 1px solid #d1d5db;">ดูรายละเอียด</th>
           </tr>
         </thead>
         <tbody>
@@ -158,6 +164,7 @@ exports.generateContractAlertHTML = (contracts) => {
     const daysRemaining = Math.floor(contract.days_remaining);
     const urgency = daysRemaining <= 3 ? 'color: #ef4444; font-weight: bold;' : 
                     daysRemaining <= 7 ? 'color: #f59e0b;' : '';
+    const contractUrl = `${frontendUrl}/contracts/${contract.id}`;
     
     html += `
       <tr>
@@ -165,6 +172,9 @@ exports.generateContractAlertHTML = (contracts) => {
         <td style="padding: 8px; border: 1px solid #d1d5db;">${contract.contact_name || '-'}</td>
         <td style="padding: 8px; border: 1px solid #d1d5db;">${new Date(contract.end_date).toLocaleDateString('th-TH')}</td>
         <td style="padding: 8px; border: 1px solid #d1d5db; ${urgency}">${daysRemaining} วัน</td>
+        <td style="padding: 8px; border: 1px solid #d1d5db; text-align: center;">
+          <a href="${contractUrl}" style="color: #2563eb; text-decoration: none; font-weight: bold;">ดูสัญญา →</a>
+        </td>
       </tr>
     `;
   });
@@ -175,6 +185,9 @@ exports.generateContractAlertHTML = (contracts) => {
       <p style="margin-top: 20px; color: #6b7280;">
         กรุณาดำเนินการต่ออายุหรือปิดสัญญาตามความเหมาะสม
       </p>
+      <p style="margin-top: 10px;">
+        <a href="${frontendUrl}/contracts" style="display: inline-block; padding: 10px 20px; background-color: #2563eb; color: white; text-decoration: none; border-radius: 5px;">ดูสัญญาทั้งหมด</a>
+      </p>
     </div>
   `;
 
@@ -183,6 +196,8 @@ exports.generateContractAlertHTML = (contracts) => {
 
 // สร้าง HTML สำหรับอีเมลแจ้งเตือนงวดงาน
 exports.generatePeriodAlertHTML = (periods) => {
+  const frontendUrl = process.env.FRONTEND_URL || 'https://contract-f.onrender.com';
+  
   let html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
       <h2 style="color: #2563eb;">แจ้งเตือนงวดงานใกล้ถึงกำหนด</h2>
@@ -194,6 +209,7 @@ exports.generatePeriodAlertHTML = (periods) => {
             <th style="padding: 8px; border: 1px solid #d1d5db;">งวดที่</th>
             <th style="padding: 8px; border: 1px solid #d1d5db;">วันที่กำหนดส่ง</th>
             <th style="padding: 8px; border: 1px solid #d1d5db;">เหลือเวลา</th>
+            <th style="padding: 8px; border: 1px solid #d1d5db;">ดูรายละเอียด</th>
           </tr>
         </thead>
         <tbody>
@@ -203,6 +219,7 @@ exports.generatePeriodAlertHTML = (periods) => {
     const daysRemaining = Math.floor(period.days_remaining);
     const urgency = daysRemaining <= 1 ? 'color: #ef4444; font-weight: bold;' : 
                     daysRemaining <= 3 ? 'color: #f59e0b;' : '';
+    const contractUrl = `${frontendUrl}/contracts/${period.contract_id}`;
     
     html += `
       <tr>
@@ -210,6 +227,9 @@ exports.generatePeriodAlertHTML = (periods) => {
         <td style="padding: 8px; border: 1px solid #d1d5db;">${period.period_no}</td>
         <td style="padding: 8px; border: 1px solid #d1d5db;">${new Date(period.due_date).toLocaleDateString('th-TH')}</td>
         <td style="padding: 8px; border: 1px solid #d1d5db; ${urgency}">${daysRemaining} วัน</td>
+        <td style="padding: 8px; border: 1px solid #d1d5db; text-align: center;">
+          <a href="${contractUrl}" style="color: #2563eb; text-decoration: none; font-weight: bold;">ดูสัญญา →</a>
+        </td>
       </tr>
     `;
   });
@@ -220,6 +240,9 @@ exports.generatePeriodAlertHTML = (periods) => {
       <p style="margin-top: 20px; color: #6b7280;">
         กรุณาเตรียมเอกสารและดำเนินการส่งมอบงานตามกำหนด
       </p>
+      <p style="margin-top: 10px;">
+        <a href="${frontendUrl}/contracts" style="display: inline-block; padding: 10px 20px; background-color: #2563eb; color: white; text-decoration: none; border-radius: 5px;">ดูสัญญาทั้งหมด</a>
+      </p>
     </div>
   `;
 
@@ -228,14 +251,14 @@ exports.generatePeriodAlertHTML = (periods) => {
 
 // ฟังก์ชันหลักสำหรับรันการแจ้งเตือนทั้งหมด
 exports.runDailyAlerts = async () => {
-  console.log('Starting daily alert check...', new Date().toISOString());
+  console.log(`[${new Date().toISOString()}] Alert Service: Starting daily check...`);
   
   try {
     // 1. ตรวจสอบสัญญาที่ใกล้หมดอายุ (default 7 วัน)
     const expiringContracts = await exports.checkExpiringContracts(7);
     
     if (expiringContracts.length > 0) {
-      console.log(`Found ${expiringContracts.length} expiring contracts`);
+      console.log(`[Alert] Found ${expiringContracts.length} expiring contracts`);
       
       // จัดกลุ่มตาม alert_emails และกรองเฉพาะที่ยังไม่ได้ส่งวันนี้
       const emailGroups = {};
@@ -251,8 +274,6 @@ exports.runDailyAlerts = async () => {
               }
               emailGroups[email].contracts.push(contract);
               emailGroups[email].contractIds.push(contract.id);
-            } else {
-              console.log(`Alert already sent today for contract ${contract.contract_no} to ${email}`);
             }
           }
         }
@@ -282,7 +303,7 @@ exports.runDailyAlerts = async () => {
     const upcomingPeriods = await exports.checkUpcomingPeriods();
     
     if (upcomingPeriods.length > 0) {
-      console.log(`Found ${upcomingPeriods.length} upcoming periods`);
+      console.log(`[Alert] Found ${upcomingPeriods.length} upcoming periods`);
       
       // จัดกลุ่มตาม alert_emails และกรองเฉพาะที่ยังไม่ได้ส่งวันนี้
       const emailGroups = {};
@@ -298,8 +319,6 @@ exports.runDailyAlerts = async () => {
               }
               emailGroups[email].periods.push(period);
               emailGroups[email].periodIds.push(period.id);
-            } else {
-              console.log(`Alert already sent today for period ${period.period_no} (contract ${period.contract_no}) to ${email}`);
             }
           }
         }
@@ -325,7 +344,7 @@ exports.runDailyAlerts = async () => {
       }
     }
     
-    console.log('Daily alert check completed');
+    console.log(`[Alert] Check completed: ${expiringContracts.length} contracts, ${upcomingPeriods.length} periods`);
     return {
       success: true,
       expiringContracts: expiringContracts.length,
@@ -348,7 +367,9 @@ exports.cleanupOldTracking = async () => {
       `DELETE FROM alert_tracking 
        WHERE sent_date < CURRENT_DATE - INTERVAL '30 days'`
     );
-    console.log(`Cleaned up ${result.rowCount} old tracking records`);
+    if (result.rowCount > 0) {
+      console.log(`[Alert] Cleaned up ${result.rowCount} old tracking records`);
+    }
   } catch (error) {
     console.error('Error cleaning up tracking records:', error);
   }

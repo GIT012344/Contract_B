@@ -233,24 +233,35 @@ exports.updatePeriod = async (req, res) => {
     let result;
     let description;
     
+    // ดึงข้อมูลเดิมก่อน
+    const existing = await db.query('SELECT * FROM contract_periods WHERE id = $1', [id]);
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: 'Period not found' });
+    }
+    const currentPeriod = existing.rows[0];
+    
     // ถ้าส่งมาแค่ status อย่างเดียว (จากปุ่มทางลัด)
-    if (status && !periodNo && !dueDate) {
+    if (status && !periodNo && !dueDate && alert_days === undefined) {
       result = await db.query(
         'UPDATE contract_periods SET status = $1 WHERE id = $2 RETURNING *',
         [status, id]
       );
-      if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
       logService.log('PERIOD_STATUS_UPDATE', id, req.user.username, { status });
       description = `อัปเดตสถานะงวดงานเป็น ${status}`;
     } else {
-      // อัปเดตข้อมูลทั้งหมด
+      // ใช้ค่าเดิมถ้าไม่ได้ส่งมาใหม่
+      const updatePeriodNo = periodNo !== undefined ? periodNo : currentPeriod.period_no;
+      const updateDueDate = dueDate !== undefined ? dueDate : currentPeriod.due_date;
+      const updateAlertDays = alert_days !== undefined ? alert_days : currentPeriod.alert_days;
+      const updateStatus = status !== undefined ? status : currentPeriod.status;
+      
+      // อัปเดตข้อมูล
       result = await db.query(
         'UPDATE contract_periods SET period_no = $1, due_date = $2, alert_days = $3, status = $4 WHERE id = $5 RETURNING *',
-        [periodNo, dueDate, alert_days || 0, status || 'รอดำเนินการ', id]
+        [updatePeriodNo, updateDueDate, updateAlertDays || 0, updateStatus || 'รอดำเนินการ', id]
       );
-      if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
-      logService.log('PERIOD_UPDATE', id, req.user.username, { periodNo, dueDate, alert_days, status });
-      description = `แก้ไขงวดงานที่ ${periodNo}`;
+      logService.log('PERIOD_UPDATE', id, req.user.username, { periodNo: updatePeriodNo, dueDate: updateDueDate, alert_days: updateAlertDays, status: updateStatus });
+      description = `แก้ไขงวดงานที่ ${updatePeriodNo}`;
     }
     
     // บันทึก Activity Log สำหรับการแก้ไขงวดงาน
