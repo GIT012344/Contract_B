@@ -8,9 +8,9 @@ exports.getDashboardStats = async (req, res) => {
       SELECT 
         COUNT(*) as total_contracts,
         COUNT(CASE WHEN status = 'ACTIVE' THEN 1 END) as active_contracts,
-        COUNT(CASE WHEN status = 'EXPIRE' THEN 1 END) as expired_contracts,
+        COUNT(CASE WHEN status = 'EXPIRED' THEN 1 END) as expired_contracts,
         COUNT(CASE WHEN status = 'CRTD' THEN 1 END) as created_contracts,
-        0 as total_value
+        COUNT(DISTINCT id) as total_contract_count
       FROM contracts
       WHERE status != 'DELETED'
     `);
@@ -21,7 +21,7 @@ exports.getDashboardStats = async (req, res) => {
         COUNT(*) as total_periods,
         COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_periods,
         COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_periods,
-        0 as total_period_value
+        COUNT(CASE WHEN status = 'overdue' THEN 1 END) as overdue_periods
       FROM periods
     `);
 
@@ -30,7 +30,7 @@ exports.getDashboardStats = async (req, res) => {
       SELECT 
         department,
         COUNT(*) as contract_count,
-        0 as department_value
+        COUNT(DISTINCT id) as unique_contracts
       FROM contracts
       WHERE status != 'DELETED'
       GROUP BY department
@@ -42,7 +42,7 @@ exports.getDashboardStats = async (req, res) => {
       SELECT 
         TO_CHAR(start_date, 'YYYY-MM') as month,
         COUNT(*) as contract_count,
-        0 as monthly_value
+        COUNT(DISTINCT id) as unique_contracts
       FROM contracts
       WHERE status != 'DELETED'
         AND start_date >= CURRENT_DATE - INTERVAL '12 months'
@@ -56,7 +56,8 @@ exports.getDashboardStats = async (req, res) => {
         contracts: contractStats.rows[0],
         periods: periodStats.rows[0],
         departments: departmentStats.rows,
-        monthlyTrend: monthlyTrend.rows
+        monthlyTrend: monthlyTrend.rows,
+        totalPeriodCount: periodStats.rows[0]?.total_periods || 0
       }
     });
   } catch (error) {
@@ -137,21 +138,20 @@ exports.getContractReports = async (req, res) => {
   }
 };
 
-// Get financial reports
-exports.getFinancialReports = async (req, res) => {
+// Get period reports (replaced financial reports)
+exports.getPeriodReports = async (req, res) => {
   try {
     const { year = new Date().getFullYear(), department } = req.query;
 
-    // Monthly financial summary
+    // Monthly period summary
     let monthlyQuery = `
       SELECT 
         TO_CHAR(p.due_date, 'MM') as month,
         TO_CHAR(p.due_date, 'Mon') as month_name,
         COUNT(DISTINCT p.contract_id) as contract_count,
-        COUNT(p.id) as period_count,
-        SUM(p.amount) as total_amount,
-        SUM(CASE WHEN p.status = 'completed' THEN p.amount ELSE 0 END) as received_amount,
-        SUM(CASE WHEN p.status = 'pending' THEN p.amount ELSE 0 END) as pending_amount
+        COUNT(*) as period_count,
+        COUNT(CASE WHEN p.status = 'completed' THEN 1 END) as completed_periods,
+        COUNT(CASE WHEN p.status = 'pending' THEN 1 END) as pending_periods
       FROM periods p
       JOIN contracts c ON p.contract_id = c.id
       WHERE EXTRACT(YEAR FROM p.due_date) = $1
@@ -172,21 +172,20 @@ exports.getFinancialReports = async (req, res) => {
 
     const monthlyResult = await db.query(monthlyQuery, params);
 
-    // Department financial summary
+    // Department period breakdown
     const deptQuery = `
       SELECT 
         c.department,
         COUNT(DISTINCT c.id) as contract_count,
-        SUM(c.total_amount) as total_contract_value,
-        SUM(p.amount) as total_period_value,
-        SUM(CASE WHEN p.status = 'completed' THEN p.amount ELSE 0 END) as received_amount,
-        SUM(CASE WHEN p.status = 'pending' THEN p.amount ELSE 0 END) as pending_amount
+        COUNT(p.id) as total_periods,
+        COUNT(CASE WHEN p.status = 'completed' THEN 1 END) as completed_periods,
+        COUNT(CASE WHEN p.status = 'pending' THEN 1 END) as pending_periods
       FROM contracts c
       LEFT JOIN periods p ON c.id = p.contract_id
       WHERE c.status != 'DELETED'
-        AND EXTRACT(YEAR FROM COALESCE(p.due_date, c.start_date)) = $1
+        AND EXTRACT(YEAR FROM c.start_date) = $1
       GROUP BY c.department
-      ORDER BY total_contract_value DESC
+      ORDER BY contract_count DESC
     `;
 
     const deptResult = await db.query(deptQuery, [year]);
@@ -195,9 +194,13 @@ exports.getFinancialReports = async (req, res) => {
     const yoyQuery = `
       SELECT 
         EXTRACT(YEAR FROM c.start_date) as year,
-        COUNT(c.id) as contract_count,
-        SUM(c.total_amount) as total_value
+        COUNT(DISTINCT c.id) as contract_count,
+        COUNT(p.id) as total_periods,
+        AVG(CASE WHEN c.id IS NOT NULL THEN 
+          (SELECT COUNT(*) FROM periods WHERE contract_id = c.id) 
+        END) as avg_periods_per_contract
       FROM contracts c
+      LEFT JOIN periods p ON c.id = p.contract_id
       WHERE c.status != 'DELETED'
         AND EXTRACT(YEAR FROM c.start_date) >= $1 - 2
       GROUP BY EXTRACT(YEAR FROM c.start_date)
@@ -215,10 +218,10 @@ exports.getFinancialReports = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Error fetching financial reports:', error);
+    console.error('Error fetching period reports:', error);
     res.status(500).json({ 
       success: false, 
-      message: 'เกิดข้อผิดพลาดในการดึงรายงานการเงิน',
+      message: 'เกิดข้อผิดพลาดในการดึงข้อมูลรายงานงวด',
       error: error.message 
     });
   }
@@ -265,9 +268,7 @@ exports.getPeriodAnalysis = async (req, res) => {
         COUNT(*) as total_periods,
         COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed,
         COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending,
-        COUNT(CASE WHEN due_date < CURRENT_DATE AND status = 'pending' THEN 1 END) as overdue,
-        SUM(amount) as total_value,
-        SUM(CASE WHEN status = 'completed' THEN amount ELSE 0 END) as received_value
+        COUNT(CASE WHEN due_date < CURRENT_DATE AND status = 'pending' THEN 1 END) as overdue
       FROM periods p
       ${contractId ? 'WHERE contract_id = $1' : ''}
     `;
@@ -305,7 +306,7 @@ exports.exportReport = async (req, res) => {
             contract_number as "เลขที่สัญญา",
             contract_name as "ชื่อสัญญา",
             department as "หน่วยงาน",
-            total_amount as "มูลค่า",
+            (SELECT COUNT(*) FROM periods WHERE contract_id = contracts.id) as "จำนวนงวด",
             start_date as "วันเริ่มต้น",
             end_date as "วันสิ้นสุด",
             status as "สถานะ"
@@ -324,7 +325,6 @@ exports.exportReport = async (req, res) => {
             c.contract_name as "ชื่อสัญญา",
             p.period_no as "งวดที่",
             p.description as "รายละเอียด",
-            p.amount as "จำนวนเงิน",
             p.due_date as "วันครบกำหนด",
             p.status as "สถานะ"
           FROM periods p
@@ -366,27 +366,25 @@ exports.getPerformanceMetrics = async (req, res) => {
     // Contract completion rate
     const completionRate = await db.query(`
       SELECT 
-        COUNT(CASE WHEN status = 'EXPIRE' THEN 1 END)::float / 
-        NULLIF(COUNT(*), 0) * 100 as completion_rate
+        COALESCE(COUNT(CASE WHEN status = 'EXPIRED' THEN 1 END)::float / 
+        NULLIF(COUNT(*), 0) * 100, 0) as completion_rate
       FROM contracts
       WHERE status != 'DELETED'
     `);
 
-    // Budget utilization (simplified as we don't have amount fields)
-    const budgetUtilization = await db.query(`
+    // Period completion rate
+    const periodCompletion = await db.query(`
       SELECT 
-        COUNT(CASE WHEN p.status = 'completed' THEN 1 END)::float /
-        NULLIF(COUNT(p.*), 0) * 100 as utilization_rate
-      FROM contracts c
-      LEFT JOIN periods p ON c.id = p.contract_id
-      WHERE c.status != 'DELETED'
+        COALESCE(COUNT(CASE WHEN status = 'completed' THEN 1 END)::float /
+        NULLIF(COUNT(*), 0) * 100, 0) as completion_rate
+      FROM periods
     `);
 
-    // On-time payment rate (simplified)
+    // On-time payment rate
     const onTimeRate = await db.query(`
       SELECT 
-        COUNT(CASE WHEN status = 'completed' THEN 1 END)::float /
-        NULLIF(COUNT(*), 0) * 100 as on_time_rate
+        COALESCE(COUNT(CASE WHEN status = 'completed' AND paid_date <= due_date THEN 1 END)::float /
+        NULLIF(COUNT(CASE WHEN status = 'completed' THEN 1 END), 0) * 100, 0) as on_time_rate
       FROM periods
     `);
 
@@ -397,7 +395,7 @@ exports.getPerformanceMetrics = async (req, res) => {
         COUNT(c.id) as total_contracts,
         AVG(
           CASE 
-            WHEN c.status = 'EXPIRE' THEN 100
+            WHEN c.status = 'EXPIRED' THEN 100
             WHEN c.status = 'ACTIVE' THEN 
               EXTRACT(EPOCH FROM (CURRENT_DATE - c.start_date)) / 
               NULLIF(EXTRACT(EPOCH FROM (c.end_date - c.start_date)), 0) * 100
@@ -414,8 +412,8 @@ exports.getPerformanceMetrics = async (req, res) => {
       success: true,
       data: {
         completionRate: completionRate.rows[0]?.completion_rate || 0,
-        budgetUtilization: budgetUtilization.rows[0]?.utilization_rate || 0,
-        onTimePaymentRate: onTimeRate.rows[0]?.on_time_rate || 0,
+        periodCompletionRate: periodCompletion.rows[0]?.completion_rate || 0,
+        onTimeRate: onTimeRate.rows[0]?.on_time_rate || 0,
         departmentPerformance: deptPerformance.rows
       }
     });

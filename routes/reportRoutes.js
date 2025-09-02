@@ -1,27 +1,17 @@
 const express = require('express');
 const router = express.Router();
 const reportController = require('../controllers/reportController');
-const authMiddleware = require('../middlewares/auth');
+const auth = require('../middleware/auth');
 
-// All routes require authentication
-router.use(authMiddleware);
+// Apply auth middleware to all routes
+router.use(auth);
 
-// Dashboard statistics
+// Report endpoints
 router.get('/dashboard', reportController.getDashboardStats);
-
-// Contract reports with filters
 router.get('/contracts', reportController.getContractReports);
-
-// Financial reports
-router.get('/financial', reportController.getFinancialReports);
-
-// Period analysis
-router.get('/periods', reportController.getPeriodAnalysis);
-
-// Performance metrics
+router.get('/periods', reportController.getPeriodReports);
+router.get('/period-analysis', reportController.getPeriodAnalysis);
 router.get('/performance', reportController.getPerformanceMetrics);
-
-// Export report data
-router.post('/export', reportController.exportReport);
+router.get('/export', reportController.exportReport);
 
 module.exports = router;
