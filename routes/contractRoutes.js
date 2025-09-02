@@ -39,6 +39,7 @@ router.post('/:id/periods', requireRole('admin'), contractController.addContract
 router.put('/:id/periods/:periodId', requireRole('admin'), contractController.updateContractPeriod);
 router.delete('/:id/periods/:periodId', requireRole('admin'), contractController.deleteContractPeriod);
 router.get('/:id/files', contractController.listFiles);
+router.post('/:id/files', upload.array('files', 10), contractController.uploadFiles);
 router.delete('/:id/files/:fileId', requireRole('admin'), contractController.deleteFile);
 router.post('/', contractController.createContract);
 router.put('/:id', contractController.updateContract);
