@@ -1,10 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const fileController = require('../controllers/fileController');
-const { authenticateToken } = require('../middlewares/auth');
+const authMiddleware = require('../middlewares/auth');
 
 // ใช้ auth middleware สำหรับทุก route
-router.use(authenticateToken);
+router.use(authMiddleware);
 
 // อัปโหลดไฟล์สำหรับสัญญา
 router.post('/contracts/:contractId/files', 

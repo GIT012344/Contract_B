@@ -3,7 +3,7 @@ const app = express();
 const PORT = process.env.PORT || 5005;
 const cors = require('cors');
 const activityLoggerMiddleware = require('./middlewares/activityLogger');
-const { authenticateToken } = require('./middlewares/auth');
+const authMiddleware = require('./middlewares/auth');
 
 // CORS configuration
 const corsOptions = {
@@ -92,7 +92,7 @@ app.get('/', (req, res) => {
 
 if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_TEST_ENDPOINTS === 'true') {
   // Test email sending
-  app.get('/api/test-email', authenticateToken, async (req, res) => {
+  app.get('/api/test-email', authMiddleware, async (req, res) => {
     try {
       const { sendMail } = require('./services/emailService');
       const testEmail = req.query.email || req.user.email;
@@ -128,7 +128,7 @@ if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_TEST_ENDPOINTS =
   });
 
   // Test alert service
-  app.get('/api/test-alerts', authenticateToken, async (req, res) => {
+  app.get('/api/test-alerts', authMiddleware, async (req, res) => {
     try {
       const alertService = require('./services/alertService');
       const result = await alertService.runDailyAlerts();
@@ -147,7 +147,7 @@ if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_TEST_ENDPOINTS =
   });
 
   // Check email configuration
-  app.get('/api/check-email-config', authenticateToken, async (req, res) => {
+  app.get('/api/check-email-config', authMiddleware, async (req, res) => {
     try {
       const config = {
         EMAIL_HOST: process.env.EMAIL_HOST ? '✓ Configured' : '✗ Not set',
