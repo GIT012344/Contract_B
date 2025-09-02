@@ -1,19 +1,26 @@
 const jwt = require('jsonwebtoken');
 const SECRET = process.env.JWT_SECRET || 'contract_secret';
 
-function authMiddleware(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'No token provided' });
+const authMiddleware = (req, res, next) => {
+  // ตรวจสอบ token จาก header หรือ query string
+  let token = req.header('Authorization')?.replace('Bearer ', '');
+  
+  // ถ้าไม่มี token ใน header ให้ตรวจสอบจาก query string
+  if (!token && req.query.token) {
+    token = req.query.token;
   }
-  const token = authHeader.split(' ')[1];
+  
+  if (!token) {
+    return res.status(401).json({ message: 'Access denied. No token provided.' });
+  }
+  
   try {
-    const user = jwt.verify(token, SECRET);
-    req.user = user;
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+    req.user = decoded;
     next();
-  } catch (err) {
-    return res.status(401).json({ error: 'Invalid token' });
+  } catch (error) {
+    res.status(400).json({ message: 'Invalid token.' });
   }
-}
+};
 
-module.exports = authMiddleware; 
+module.exports = authMiddleware;
