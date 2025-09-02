@@ -9,8 +9,7 @@ exports.getDashboardStats = async (req, res) => {
         COUNT(*) as total_contracts,
         COUNT(CASE WHEN status = 'ACTIVE' THEN 1 END) as active_contracts,
         COUNT(CASE WHEN status = 'EXPIRED' THEN 1 END) as expired_contracts,
-        COUNT(CASE WHEN status = 'CRTD' THEN 1 END) as created_contracts,
-        COUNT(DISTINCT id) as total_contract_count
+        COUNT(CASE WHEN status = 'CRTD' THEN 1 END) as created_contracts
       FROM contracts
       WHERE status != 'DELETED'
     `);
@@ -21,19 +20,20 @@ exports.getDashboardStats = async (req, res) => {
         COUNT(*) as total_periods,
         COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_periods,
         COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_periods,
-        COUNT(CASE WHEN status = 'overdue' THEN 1 END) as overdue_periods
+        COUNT(CASE WHEN due_date < CURRENT_DATE AND status = 'pending' THEN 1 END) as overdue_periods
       FROM periods
     `);
 
     // Get department distribution
     const departmentStats = await db.query(`
       SELECT 
-        department,
-        COUNT(*) as contract_count,
-        COUNT(DISTINCT id) as unique_contracts
-      FROM contracts
-      WHERE status != 'DELETED'
-      GROUP BY department
+        c.department,
+        COUNT(DISTINCT c.id) as contract_count,
+        COUNT(p.id) as total_periods
+      FROM contracts c
+      LEFT JOIN periods p ON c.id = p.contract_id
+      WHERE c.status != 'DELETED'
+      GROUP BY c.department
       ORDER BY contract_count DESC
     `);
 
@@ -41,8 +41,7 @@ exports.getDashboardStats = async (req, res) => {
     const monthlyTrend = await db.query(`
       SELECT 
         TO_CHAR(start_date, 'YYYY-MM') as month,
-        COUNT(*) as contract_count,
-        COUNT(DISTINCT id) as unique_contracts
+        COUNT(*) as contract_count
       FROM contracts
       WHERE status != 'DELETED'
         AND start_date >= CURRENT_DATE - INTERVAL '12 months'
@@ -56,8 +55,7 @@ exports.getDashboardStats = async (req, res) => {
         contracts: contractStats.rows[0],
         periods: periodStats.rows[0],
         departments: departmentStats.rows,
-        monthlyTrend: monthlyTrend.rows,
-        totalPeriodCount: periodStats.rows[0]?.total_periods || 0
+        monthlyTrend: monthlyTrend.rows
       }
     });
   } catch (error) {
@@ -138,7 +136,93 @@ exports.getContractReports = async (req, res) => {
   }
 };
 
-// Get period reports (replaced financial reports)
+// Get financial reports
+exports.getFinancialReports = async (req, res) => {
+  try {
+    const { year = new Date().getFullYear(), department } = req.query;
+
+    // Monthly financial summary
+    let monthlyQuery = `
+      SELECT 
+        TO_CHAR(p.due_date, 'MM') as month,
+        TO_CHAR(p.due_date, 'Mon') as month_name,
+        COUNT(DISTINCT p.contract_id) as contract_count,
+        COUNT(*) as period_count,
+        COALESCE(SUM(CAST(p.amount AS NUMERIC)), 0) as total_amount,
+        COALESCE(SUM(CASE WHEN p.status = 'completed' THEN CAST(p.amount AS NUMERIC) ELSE 0 END), 0) as paid_amount
+      FROM periods p
+      JOIN contracts c ON p.contract_id = c.id
+      WHERE EXTRACT(YEAR FROM p.due_date) = $1
+        AND c.status != 'DELETED'
+    `;
+
+    const params = [year];
+    let paramIndex = 2;
+
+    if (department && department !== 'all') {
+      monthlyQuery += ` AND c.department = $${paramIndex}`;
+      params.push(department);
+      paramIndex++;
+    }
+
+    monthlyQuery += ` GROUP BY TO_CHAR(p.due_date, 'MM'), TO_CHAR(p.due_date, 'Mon')
+                      ORDER BY month`;
+
+    const monthlyResult = await db.query(monthlyQuery, params);
+
+    // Department financial breakdown
+    const deptQuery = `
+      SELECT 
+        c.department,
+        COUNT(DISTINCT c.id) as contract_count,
+        COALESCE(SUM(CAST(c.total_amount AS NUMERIC)), 0) as total_budget,
+        COALESCE(SUM(CASE WHEN p.status = 'completed' THEN CAST(p.amount AS NUMERIC) ELSE 0 END), 0) as spent_amount,
+        COALESCE(AVG(CASE WHEN p.status = 'completed' THEN CAST(p.amount AS NUMERIC) ELSE 0 END), 0) as avg_payment
+      FROM contracts c
+      LEFT JOIN periods p ON c.id = p.contract_id
+      WHERE c.status != 'DELETED'
+        AND EXTRACT(YEAR FROM c.start_date) = $1
+      GROUP BY c.department
+      ORDER BY total_budget DESC
+    `;
+
+    const deptResult = await db.query(deptQuery, [year]);
+
+    // Year-over-year comparison
+    const yoyQuery = `
+      SELECT 
+        EXTRACT(YEAR FROM c.start_date) as year,
+        COUNT(*) as contract_count,
+        COALESCE(SUM(CAST(c.total_amount AS NUMERIC)), 0) as total_value,
+        COALESCE(AVG(CAST(c.total_amount AS NUMERIC)), 0) as avg_contract_value
+      FROM contracts c
+      WHERE c.status != 'DELETED'
+        AND EXTRACT(YEAR FROM c.start_date) >= $1 - 2
+      GROUP BY EXTRACT(YEAR FROM c.start_date)
+      ORDER BY year DESC
+    `;
+
+    const yoyResult = await db.query(yoyQuery, [year]);
+
+    res.json({
+      success: true,
+      data: {
+        monthly: monthlyResult.rows,
+        departments: deptResult.rows,
+        yearOverYear: yoyResult.rows
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching financial reports:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'เกิดข้อผิดพลาดในการดึงรายงานการเงิน',
+      error: error.message 
+    });
+  }
+};
+
+// Get period reports
 exports.getPeriodReports = async (req, res) => {
   try {
     const { year = new Date().getFullYear(), department } = req.query;
@@ -185,7 +269,7 @@ exports.getPeriodReports = async (req, res) => {
       WHERE c.status != 'DELETED'
         AND EXTRACT(YEAR FROM c.start_date) = $1
       GROUP BY c.department
-      ORDER BY contract_count DESC
+      ORDER BY total_periods DESC
     `;
 
     const deptResult = await db.query(deptQuery, [year]);
@@ -195,10 +279,7 @@ exports.getPeriodReports = async (req, res) => {
       SELECT 
         EXTRACT(YEAR FROM c.start_date) as year,
         COUNT(DISTINCT c.id) as contract_count,
-        COUNT(p.id) as total_periods,
-        AVG(CASE WHEN c.id IS NOT NULL THEN 
-          (SELECT COUNT(*) FROM periods WHERE contract_id = c.id) 
-        END) as avg_periods_per_contract
+        COUNT(p.id) as total_periods
       FROM contracts c
       LEFT JOIN periods p ON c.id = p.contract_id
       WHERE c.status != 'DELETED'
@@ -214,15 +295,22 @@ exports.getPeriodReports = async (req, res) => {
       data: {
         monthly: monthlyResult.rows,
         departments: deptResult.rows,
-        yearOverYear: yoyResult.rows
+        yearOverYear: yoyResult.rows,
+        summary: {
+          currentYear: year,
+          totalContracts: monthlyResult.rows.reduce((sum, m) => sum + parseInt(m.contract_count), 0),
+          totalPeriods: monthlyResult.rows.reduce((sum, m) => sum + parseInt(m.period_count), 0),
+          completedPeriods: monthlyResult.rows.reduce((sum, m) => sum + parseInt(m.completed_periods || 0), 0),
+          pendingPeriods: monthlyResult.rows.reduce((sum, m) => sum + parseInt(m.pending_periods || 0), 0)
+        }
       }
     });
   } catch (error) {
-    console.error('Error fetching period reports:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'เกิดข้อผิดพลาดในการดึงข้อมูลรายงานงวด',
-      error: error.message 
+    console.error('Error getting period reports:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch period reports',
+      error: error.message
     });
   }
 };
@@ -306,7 +394,7 @@ exports.exportReport = async (req, res) => {
             contract_number as "เลขที่สัญญา",
             contract_name as "ชื่อสัญญา",
             department as "หน่วยงาน",
-            (SELECT COUNT(*) FROM periods WHERE contract_id = contracts.id) as "จำนวนงวด",
+            total_amount as "มูลค่า",
             start_date as "วันเริ่มต้น",
             end_date as "วันสิ้นสุด",
             status as "สถานะ"
@@ -325,6 +413,7 @@ exports.exportReport = async (req, res) => {
             c.contract_name as "ชื่อสัญญา",
             p.period_no as "งวดที่",
             p.description as "รายละเอียด",
+            p.amount as "จำนวนเงิน",
             p.due_date as "วันครบกำหนด",
             p.status as "สถานะ"
           FROM periods p
@@ -373,7 +462,7 @@ exports.getPerformanceMetrics = async (req, res) => {
     `);
 
     // Period completion rate
-    const periodCompletion = await db.query(`
+    const periodCompletionRate = await db.query(`
       SELECT 
         COALESCE(COUNT(CASE WHEN status = 'completed' THEN 1 END)::float /
         NULLIF(COUNT(*), 0) * 100, 0) as completion_rate
@@ -410,12 +499,10 @@ exports.getPerformanceMetrics = async (req, res) => {
 
     res.json({
       success: true,
-      data: {
-        completionRate: completionRate.rows[0]?.completion_rate || 0,
-        periodCompletionRate: periodCompletion.rows[0]?.completion_rate || 0,
-        onTimeRate: onTimeRate.rows[0]?.on_time_rate || 0,
-        departmentPerformance: deptPerformance.rows
-      }
+      departmentPerformance: deptPerformance.rows,
+      completionRate: completionRate.rows[0]?.completion_rate || 0,
+      periodCompletionRate: periodCompletionRate.rows[0]?.completion_rate || 0,
+      onTimePaymentRate: onTimeRate.rows[0]?.on_time_rate || 0
     });
   } catch (error) {
     console.error('Error fetching performance metrics:', error);
