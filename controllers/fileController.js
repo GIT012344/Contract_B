@@ -1,4 +1,4 @@
-const pool = require('../config/database');
+const pool = require('../db');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -71,16 +71,16 @@ exports.uploadFiles = async (req, res) => {
     });
   }
 
-  const connection = await pool.getConnection();
+  const client = await pool.connect();
   
   try {
-    await connection.beginTransaction();
+    await client.query('BEGIN');
     
     const uploadedFiles = [];
     
     for (const file of files) {
       // บันทึกข้อมูลไฟล์ลงฐานข้อมูล
-      const [result] = await connection.execute(
+      const result = await client.query(
         `INSERT INTO contract_files (
           contract_id, 
           file_name, 
@@ -89,19 +89,20 @@ exports.uploadFiles = async (req, res) => {
           file_type,
           uploaded_by,
           uploaded_at
-        ) VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+        ) VALUES ($1, $2, $3, $4, $5, $6, NOW())
+        RETURNING id`,
         [
           contractId,
           file.originalname,
           file.filename,
           file.size,
           file.mimetype,
-          req.user.id
+          req.user ? req.user.id : null
         ]
       );
       
       uploadedFiles.push({
-        id: result.insertId,
+        id: result.rows[0].id,
         name: file.originalname,
         size: file.size,
         type: file.mimetype,
@@ -109,7 +110,7 @@ exports.uploadFiles = async (req, res) => {
       });
     }
     
-    await connection.commit();
+    await client.query('COMMIT');
     
     res.json({
       success: true,
@@ -118,7 +119,7 @@ exports.uploadFiles = async (req, res) => {
     });
     
   } catch (error) {
-    await connection.rollback();
+    await client.query('ROLLBACK');
     console.error('Upload error:', error);
     
     // ลบไฟล์ที่อัปโหลดแล้วถ้าเกิดข้อผิดพลาด
@@ -134,7 +135,7 @@ exports.uploadFiles = async (req, res) => {
       message: 'เกิดข้อผิดพลาดในการอัปโหลดไฟล์' 
     });
   } finally {
-    connection.release();
+    client.release();
   }
 };
 
@@ -143,7 +144,7 @@ exports.getContractFiles = async (req, res) => {
   const contractId = req.params.contractId;
   
   try {
-    const [files] = await pool.execute(
+    const result = await pool.query(
       `SELECT 
         cf.id,
         cf.file_name,
@@ -153,14 +154,14 @@ exports.getContractFiles = async (req, res) => {
         u.username as uploaded_by
       FROM contract_files cf
       LEFT JOIN users u ON cf.uploaded_by = u.id
-      WHERE cf.contract_id = ? AND cf.deleted_at IS NULL
+      WHERE cf.contract_id = $1 AND cf.deleted_at IS NULL
       ORDER BY cf.uploaded_at DESC`,
       [contractId]
     );
     
     res.json({
       success: true,
-      data: files
+      data: result.rows
     });
     
   } catch (error) {
@@ -177,19 +178,19 @@ exports.downloadFile = async (req, res) => {
   const fileId = req.params.fileId;
   
   try {
-    const [files] = await pool.execute(
-      `SELECT * FROM contract_files WHERE id = ? AND deleted_at IS NULL`,
+    const result = await pool.query(
+      `SELECT * FROM contract_files WHERE id = $1 AND deleted_at IS NULL`,
       [fileId]
     );
     
-    if (files.length === 0) {
+    if (result.rows.length === 0) {
       return res.status(404).json({ 
         success: false, 
         message: 'ไม่พบไฟล์' 
       });
     }
     
-    const file = files[0];
+    const file = result.rows[0];
     const filePath = path.join(uploadsDir, `contract_${file.contract_id}`, file.file_path);
     
     if (!fs.existsSync(filePath)) {
@@ -216,19 +217,19 @@ exports.viewFile = async (req, res) => {
   const fileId = req.params.fileId;
   
   try {
-    const [files] = await pool.execute(
-      `SELECT * FROM contract_files WHERE id = ? AND deleted_at IS NULL`,
+    const result = await pool.query(
+      `SELECT * FROM contract_files WHERE id = $1 AND deleted_at IS NULL`,
       [fileId]
     );
     
-    if (files.length === 0) {
+    if (result.rows.length === 0) {
       return res.status(404).json({ 
         success: false, 
         message: 'ไม่พบไฟล์' 
       });
     }
     
-    const file = files[0];
+    const file = result.rows[0];
     const filePath = path.join(uploadsDir, `contract_${file.contract_id}`, file.file_path);
     
     if (!fs.existsSync(filePath)) {
@@ -267,8 +268,8 @@ exports.deleteFile = async (req, res) => {
   
   try {
     // Soft delete - เพียงแค่อัปเดตฟิลด์ deleted_at
-    await pool.execute(
-      `UPDATE contract_files SET deleted_at = NOW() WHERE id = ?`,
+    await pool.query(
+      `UPDATE contract_files SET deleted_at = NOW() WHERE id = $1`,
       [fileId]
     );
     
