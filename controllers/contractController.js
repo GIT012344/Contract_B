@@ -430,7 +430,7 @@ exports.uploadFiles = async (req, res) => {
     const fileCountResult = await db.query('SELECT COUNT(*) FROM contract_files WHERE contract_id = $1', [contractId]);
     const currentCount = parseInt(fileCountResult.rows[0].count, 10);
     if (!req.files || req.files.length === 0) return res.status(400).json({ error: 'No files uploaded' });
-    if ((currentCount + req.files.length) > 10) return res.status(400).json({ error: 'Maximum 10 files per contract' });
+    if ((currentCount + req.files.length) > 5) return res.status(400).json({ error: 'Maximum 5 files per contract' });
     // insert files
     for (const file of req.files) {
       // Use Thai-corrected filename if available, otherwise fall back to original

@@ -47,6 +47,7 @@ const userRoutes = require('./routes/userRoutes');
 const periodsRoutes = require('./routes/periodsRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
 const reportRoutes = require('./routes/reportRoutes');
+const fileRoutes = require('./routes/fileRoutes');
 
 // Apply routes
 app.use('/api/auth', authRoutes);
@@ -58,6 +59,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/periods', periodsRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api', fileRoutes);
 
 // Fix database constraint endpoint (temporary)
 app.get('/api/fix-constraint', async (req, res) => {
