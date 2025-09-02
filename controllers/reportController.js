@@ -499,10 +499,12 @@ exports.getPerformanceMetrics = async (req, res) => {
 
     res.json({
       success: true,
-      departmentPerformance: deptPerformance.rows,
-      completionRate: completionRate.rows[0]?.completion_rate || 0,
-      periodCompletionRate: periodCompletionRate.rows[0]?.completion_rate || 0,
-      onTimePaymentRate: onTimeRate.rows[0]?.on_time_rate || 0
+      data: {
+        departmentPerformance: deptPerformance.rows,
+        completionRate: completionRate.rows[0]?.completion_rate || 0,
+        periodCompletionRate: periodCompletionRate.rows[0]?.completion_rate || 0,
+        onTimePaymentRate: onTimeRate.rows[0]?.on_time_rate || 0
+      }
     });
   } catch (error) {
     console.error('Error fetching performance metrics:', error);
